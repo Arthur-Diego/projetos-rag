@@ -1,0 +1,74 @@
+@startuml componente
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Component.puml
+
+title C4 nivel 3 - Componentes do pacote rag/ - ADR-005 + 006 + 007
+
+Person(estudante, "Estudante")
+
+Container_Boundary(roots, "Composition roots") {
+    Component(ingest, "ingest.py", "CLI", "Monta as dependencias da ingestao e traduz excecao em codigo de saida")
+    Component(ask, "ask.py", "CLI", "Monta as dependencias da consulta e traduz excecao em codigo de saida")
+}
+
+Container_Boundary(facade, "rag/facade - casos de uso") {
+    Component(ifacade, "IngestionFacade", "Facade", "load -> split -> embed -> store. Devolve IngestionReport. NAO conhece terminal")
+    Component(qfacade, "QueryFacade", "Facade", "retrieve -> augment -> generate. Devolve Answer. NAO conhece terminal")
+}
+
+Container_Boundary(service, "rag/service") {
+    Component(health, "HealthChecker", "Service", "Heartbeat do Chroma antes da primeira chamada paga")
+    Component(chunking, "ChunkingService", "Protocol + RecursiveChunkingService", "Documents -> chunks, herdando metadados")
+    Component(retrieval, "RetrievalService", "Service", "Quanto trazer e sob que criterio. Sem limiar, por decisao do HLD")
+    Component(prompt, "PromptBuilder", "Service", "Monta o prompt. Dono da ESCAPE_PHRASE, que e contrato literal")
+    Component(generation, "GenerationService", "Protocol + OpenAiGenerationService", "Chama o LLM. Fabrica dos embeddings")
+}
+
+Container_Boundary(repository, "rag/repository") {
+    Component(reader, "DocumentReader", "Protocol + PdfDocumentReader", "Arquivos -> Documents. Glob NAO recursivo (ADR-004)")
+    Component(vector, "VectorRepository", "Protocol + ChromaVectorRepository", "Persiste e consulta vetores")
+}
+
+Container_Boundary(presenter, "rag/presenter") {
+    Component(reporter, "ConsoleReporter", "Presenter", "Unico ponto que escreve: stdout carrega resultado, stderr carrega diagnostico")
+}
+
+Container_Boundary(base, "rag/ - base") {
+    Component(models, "domain.models", "SearchHit, Answer, IngestionReport", "Objetos de valor. Folha do grafo")
+    Component(config, "config", "RagProperties (frozen)", "Valida na construcao. Equivale a @ConfigurationProperties")
+    Component(exceptions, "exceptions", "RagException e subclasses", "Camadas levantam; entrypoints encerram")
+}
+
+ContainerDb(chroma, "Chroma", "Docker :8000")
+System_Ext(openai, "API da OpenAI")
+
+Rel(estudante, ingest, "executa")
+Rel(estudante, ask, "executa")
+
+Rel(ingest, ifacade, "delega o caso de uso")
+Rel(ask, qfacade, "delega o caso de uso")
+
+Rel(ifacade, reader, "le")
+Rel(ifacade, chunking, "divide")
+Rel(ifacade, vector, "recria e grava")
+Rel(qfacade, retrieval, "recupera")
+Rel(qfacade, prompt, "monta prompt")
+Rel(qfacade, generation, "gera")
+
+Rel(retrieval, vector, "busca")
+Rel(vector, models, "devolve")
+Rel(prompt, models, "le")
+Rel(reporter, models, "exibe")
+
+Rel(vector, chroma, "HTTP :8000")
+Rel(vector, openai, "embed da pergunta", "HTTPS")
+Rel(generation, openai, "chat completion", "HTTPS")
+
+Rel(ingest, health, "verifica")
+Rel(ask, health, "verifica")
+Rel(health, config, "le")
+
+Rel(ingest, reporter, "apresenta o IngestionReport")
+Rel(ask, reporter, "apresenta o Answer")
+
+SHOW_LEGEND()
+@enduml

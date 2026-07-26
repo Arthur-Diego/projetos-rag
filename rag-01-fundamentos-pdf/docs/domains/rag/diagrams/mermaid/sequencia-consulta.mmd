@@ -1,0 +1,71 @@
+---
+title: Sequência de uma consulta (python ask.py "pergunta")
+---
+sequenceDiagram
+    autonumber
+    actor U as Você
+    participant ASK as ask.py<br/>(composition root)
+    participant CFG as RagProperties
+    participant PRE as HealthChecker
+    participant FAC as QueryFacade
+    participant RET as RetrievalService
+    participant ST as VectorRepository
+    participant PR as PromptBuilder
+    participant GEN as GenerationService
+    participant REP as ConsoleReporter
+    participant CH as Chroma<br/>(Docker :8000)
+    participant AI as API OpenAI
+
+    U->>ASK: python ask.py "pergunta"
+
+    rect rgba(90, 120, 170, 0.13)
+    note over ASK,CH: PRE-VOO - falhar antes de gastar dinheiro
+    ASK->>CFG: config.load()
+    CFG->>CFG: le .env e valida a chave
+    CFG-->>ASK: RagProperties (se existe, e valida)
+    ASK->>PRE: check()
+    PRE->>CH: GET /api/v2/heartbeat
+    CH-->>PRE: 200
+    ASK->>FAC: open_index()
+    FAC->>RET: require_index()
+    RET->>ST: count()
+    ST->>CH: get_collection().count()
+    CH-->>ST: 617
+    ST-->>RET: 617
+    RET-->>FAC: 617
+    FAC-->>ASK: 617
+    ASK->>REP: index_opened("livros", 617, k=4)
+    end
+
+    rect rgba(60, 150, 120, 0.13)
+    note over ASK,AI: RETRIEVE - a pergunta vira vetor e busca vizinhos
+    ASK->>FAC: ask("pergunta")
+    FAC->>RET: retrieve("pergunta")
+    RET->>ST: search("pergunta", k=4)
+    ST->>AI: embed("pergunta")
+    AI-->>ST: vetor de 1536 dimensoes
+    ST->>CH: similarity_search_with_score
+    CH-->>ST: 4 pares (chunk, distancia)
+    ST-->>RET: hits
+    RET-->>FAC: hits
+    note right of CH: devolve os 4 mais proximos SEMPRE,<br/>mesmo que todos sejam ruins.<br/>Nao ha limiar. Nada aqui avalia<br/>se o resultado presta.
+    end
+
+    rect rgba(200, 140, 50, 0.13)
+    note over ASK,AI: AUGMENT + GENERATE - o unico ponto que pode recusar
+    FAC->>PR: build(pergunta, hits)
+    PR-->>FAC: prompt com contexto numerado<br/>+ instrucao de escape
+    FAC->>GEN: generate(prompt)
+    GEN->>AI: chat completion (temperatura 0)
+    AI-->>GEN: resposta OU frase de escape
+    GEN-->>FAC: texto
+    FAC-->>ASK: Answer(text, hits, search_s, generation_s)
+    end
+
+    rect rgba(150, 100, 180, 0.13)
+    note over ASK,REP: SAIDA - a facade devolveu DADO, o entrypoint apresenta
+    ASK->>REP: answer(Answer)
+    REP-->>U: stderr: busca 0.31s | geracao 1.12s
+    REP-->>U: stdout: a resposta
+    REP-->>U: stderr: [1] arquivo p.2 dist 0.875 ...
+    end

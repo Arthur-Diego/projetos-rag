@@ -1,0 +1,70 @@
+---
+title: Sequência da ingestão (python ingest.py)
+---
+sequenceDiagram
+    autonumber
+    actor U as Você
+    participant ING as ingest.py<br/>(composition root)
+    participant CFG as RagProperties
+    participant PRE as HealthChecker
+    participant FAC as IngestionFacade
+    participant LOAD as DocumentReader
+    participant CHK as ChunkingService
+    participant ST as VectorRepository
+    participant REP as ConsoleReporter
+    participant CH as Chroma<br/>(Docker :8000)
+    participant AI as API OpenAI
+
+    U->>ING: python ingest.py
+
+    rect rgba(90, 120, 170, 0.13)
+    note over ING,CH: PRE-VOO
+    ING->>CFG: config.load()
+    CFG-->>ING: RagProperties validada
+    ING->>PRE: check()
+    PRE->>CH: GET /api/v2/heartbeat
+    CH-->>PRE: 200
+    ING->>REP: service_ok(url)
+    ING->>CHK: RecursiveChunkingService(1000, 150)
+    note right of CHK: valida overlap < size<br/>ANTES de ler qualquer PDF
+    end
+
+    rect rgba(190, 90, 80, 0.13)
+    note over ING,CH: RECRIAR - por que nao acrescentar
+    ING->>FAC: files()
+    FAC-->>ING: [harry-potter.pdf]
+    ING->>FAC: ingest()
+    FAC->>ST: recreate()
+    ST->>CH: count() e delete_collection()
+    CH-->>ST: 617 chunks descartados
+    ST-->>FAC: 617
+    
+    note right of ST: acrescentar geraria chunks<br/>duplicados: k=4 devolveria<br/>4 copias do mesmo trecho<br/>sem nenhum aviso
+    end
+
+    rect rgba(60, 150, 120, 0.13)
+    note over ING,LOAD: LOAD - glob NAO recursivo
+    ING->>LOAD: files()
+    LOAD-->>ING: [harry-potter.pdf]
+    ING->>REP: reading(arquivo)
+    ING->>LOAD: config.load()
+    LOAD->>LOAD: PyPDFLoader, 1 Document por pagina<br/>metadados source e page
+    LOAD->>LOAD: descarta paginas sem texto
+    LOAD-->>FAC: 274 paginas, 0 descartadas
+    note right of LOAD: pdfs/fora-do-corpus/ nunca entra:<br/>o glob e pdfs/*.pdf, sem recursao.<br/>E o corpus de controle (ADR-004)
+    end
+
+    rect rgba(200, 140, 50, 0.13)
+    note over ING,AI: SPLIT + EMBED + STORE - o unico estagio pago
+    FAC->>CHK: split(paginas)
+    CHK-->>FAC: 617 chunks
+    FAC->>ST: add(chunks)
+    ST->>AI: embed(chunks) em lote
+    AI-->>ST: 617 vetores de 1536d
+    ST->>CH: add_documents
+    CH-->>ST: gravado no volume chroma_data
+    end
+
+    FAC-->>ING: IngestionReport(274, 617, ...)
+    ING->>REP: ingestion(report)
+    REP-->>U: stdout: 274 paginas -> 617 chunks

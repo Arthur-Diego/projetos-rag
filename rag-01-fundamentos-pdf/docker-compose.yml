@@ -1,0 +1,30 @@
+# Chroma como serviço. Suba antes de ingest.py e de ask.py:
+#   docker compose up -d chroma
+#
+# Valores conferidos contra a imagem chromadb/chroma:1.5.9 em 25/07/2026:
+#   - persist_path do /config.yaml interno é /data
+#   - endpoint de saúde é /api/v2/heartbeat (a API v1 responde 410 Gone)
+#   - Swagger em http://localhost:8000/docs
+
+services:
+  chroma:
+    image: chromadb/chroma:1.5.9
+    container_name: rag01-chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/data
+    healthcheck:
+      # A imagem 1.5.9 não tem curl, wget, python nem nc: só bash.
+      # Isto checa que a porta aceita conexão, não que a API responde.
+      # Para verificar a API de fato, use, a partir do host:
+      #   curl localhost:8000/api/v2/heartbeat
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  chroma_data:

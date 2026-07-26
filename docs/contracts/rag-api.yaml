@@ -1,0 +1,248 @@
+openapi: 3.1.0
+
+info:
+  title: Contrato RAG compartilhado
+  version: 1.0.0
+  description: |
+    Contrato HTTP comum aos projetos da trilha. Um frontend que fale este contrato
+    conversa com qualquer projeto sem conhecer nenhum deles.
+
+    **O mecanismo de desacoplamento é `GET /capabilities`.** O backend descreve os
+    parâmetros que aceita, em JSON Schema, e o frontend renderiza os controles a partir
+    dessa descrição. Nenhum projeto novo exige alteração no frontend: ele acrescenta uma
+    entrada em `parameters` e o controle aparece sozinho.
+
+    Regra de evolução: **acrescente campos opcionais, nunca altere os obrigatórios.**
+    Um projeto que precise mudar `POST /ask` está pedindo uma versão nova do contrato,
+    não uma customização.
+
+servers:
+  - url: http://localhost:8080
+    description: Padrão local. Cada projeto pode usar outra porta.
+
+paths:
+  /health:
+    get:
+      summary: O serviço está de pé e o índice tem conteúdo
+      description: |
+        Barato e sem efeito colateral. O frontend chama antes de habilitar a interface,
+        para distinguir "backend fora do ar" de "pergunta sem resposta".
+      responses:
+        "200":
+          description: Operante
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, project]
+                properties:
+                  status: { type: string, enum: [ok, degraded] }
+                  project: { type: string, example: rag-01-fundamentos-pdf }
+                  collection: { type: string, example: livros }
+                  indexed_chunks: { type: integer, example: 617 }
+                  embedding_model: { type: string, example: text-embedding-3-small }
+                  embedding_dimensions: { type: integer, example: 1536 }
+        "503":
+          description: Dependência externa fora do ar
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /capabilities:
+    get:
+      summary: O que este backend sabe fazer e quais parâmetros aceita
+      description: |
+        **O ponto central do contrato.** É o que permite ao frontend ser genérico.
+
+        `parameters` é um JSON Schema reduzido: cada chave é um parâmetro que pode ser
+        enviado em `options`, com tipo, default, limites e rótulo legível. O frontend
+        monta um formulário a partir daí e não precisa saber o que cada campo significa.
+      responses:
+        "200":
+          description: Descritor do backend
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [project, features, parameters]
+                properties:
+                  project: { type: string }
+                  description: { type: string }
+                  features:
+                    type: array
+                    description: Operações suportadas. O frontend esconde o que não existir.
+                    items: { type: string, enum: [ask, ingest, stream, sources, history] }
+                  parameters:
+                    type: object
+                    description: Parâmetros extras aceitos em `options`, por nome.
+                    additionalProperties: { $ref: "#/components/schemas/ParameterSpec" }
+              example:
+                project: rag-01-fundamentos-pdf
+                description: RAG ingênuo sobre PDF, com procedência e recusa verificável
+                features: [ask, ingest]
+                parameters:
+                  k:
+                    type: integer
+                    label: Chunks recuperados
+                    help: Quantos trechos enviar ao modelo. Baixo demais falta contexto; alto demais dilui.
+                    default: 4
+                    minimum: 1
+                    maximum: 20
+                  chunk_size:
+                    type: integer
+                    label: Tamanho do chunk
+                    help: Caracteres por pedaço. Afeta a indexação, exige reindexar.
+                    default: 1000
+                    minimum: 100
+                    maximum: 8000
+                    applies_to: [ingest]
+
+  /ask:
+    post:
+      summary: Pergunta ao corpus indexado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, minLength: 1 }
+                options:
+                  type: object
+                  description: |
+                    Parâmetros específicos do projeto, conforme `/capabilities`.
+                    O backend **ignora chaves desconhecidas** em vez de falhar: é isso que
+                    permite ao mesmo frontend falar com projetos de gerações diferentes.
+                  additionalProperties: true
+            example:
+              question: Segundo o texto, o que a Pedra Filosofal faz?
+              options: { k: 4 }
+      responses:
+        "200":
+          description: Resposta, com a evidência que a torna verificável
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Answer" }
+        "409":
+          description: Índice vazio; rode a ingestão
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: Dependência externa fora do ar
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /ingest:
+    post:
+      summary: Indexa o corpus, recriando a coleção
+      description: |
+        Operação cara e destrutiva: apaga o índice anterior. O frontend deve confirmar
+        antes de chamar. Só ofereça se `ingest` estiver em `features`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                options:
+                  type: object
+                  additionalProperties: true
+            example:
+              options: { chunk_size: 1000, chunk_overlap: 150 }
+      responses:
+        "200":
+          description: Relatório da indexação
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestionReport" }
+        "422":
+          description: Parâmetro inválido, por exemplo overlap maior que size
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+components:
+  schemas:
+    ParameterSpec:
+      type: object
+      required: [type, label]
+      properties:
+        type: { type: string, enum: [integer, number, string, boolean, enum] }
+        label: { type: string, description: Rótulo legível, já traduzido }
+        help: { type: string, description: Explicação curta, exibida como dica }
+        default: {}
+        minimum: { type: number }
+        maximum: { type: number }
+        values:
+          type: array
+          description: Valores permitidos quando type é enum
+          items: { type: string }
+        applies_to:
+          type: array
+          description: Operações em que este parâmetro vale. Ausente significa todas.
+          items: { type: string, enum: [ask, ingest] }
+
+    SearchHit:
+      type: object
+      required: [source, distance]
+      description: |
+        Um trecho recuperado. `distance` é DISTÂNCIA: menor é mais próximo.
+        Chamar de score inverteria a leitura na interface.
+      properties:
+        source: { type: string, example: harry-potter.pdf }
+        page: { type: integer, description: Numerada a partir de 1, para humanos }
+        distance: { type: number, format: float, example: 0.875 }
+        excerpt: { type: string, description: Trecho do texto, para exibição }
+
+    Answer:
+      type: object
+      required: [text, hits, refused, timings]
+      properties:
+        text: { type: string }
+        refused:
+          type: boolean
+          description: |
+            **Campo essencial.** O backend compara a resposta com sua frase de escape e
+            informa se recusou. Sem isso, o frontend teria que comparar strings, o que o
+            acoplaria ao texto exato de cada projeto.
+        hits:
+          type: array
+          items: { $ref: "#/components/schemas/SearchHit" }
+        timings:
+          type: object
+          description: Latência por estágio, em segundos. Permite atribuir lentidão ao estágio certo.
+          properties:
+            search_s: { type: number, format: float }
+            generation_s: { type: number, format: float }
+        meta:
+          type: object
+          description: Extras do projeto (rota escolhida, ciclos do grafo, saltos). Opcional.
+          additionalProperties: true
+
+    IngestionReport:
+      type: object
+      required: [pages, chunks, seconds]
+      properties:
+        pages: { type: integer, example: 274 }
+        chunks: { type: integer, example: 617 }
+        discarded_pages: { type: integer }
+        previous_chunks: { type: integer, description: Quantos foram descartados da coleção anterior }
+        chunk_size: { type: integer }
+        chunk_overlap: { type: integer }
+        seconds: { type: number, format: float }
+
+    Problem:
+      type: object
+      description: Erro legível, no espírito do RFC 7807. A mensagem diz o que fazer.
+      required: [title, detail]
+      properties:
+        title: { type: string, example: Serviço indisponível }
+        detail:
+          type: string
+          example: "Chroma não respondeu em http://localhost:8000. Suba com: docker compose up -d chroma"
+        code: { type: string, example: SERVICE_UNAVAILABLE }

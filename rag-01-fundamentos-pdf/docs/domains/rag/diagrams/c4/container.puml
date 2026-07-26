@@ -1,0 +1,37 @@
+@startuml container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Container.puml
+
+title C4 nivel 2 - Containers - rag-01-fundamentos-pdf
+
+Person(estudante, "Estudante", "Unico usuario")
+
+System_Boundary(sistema, "rag-01-fundamentos-pdf") {
+    Container(ingest, "ingest.py", "Python 3.12 / CLI", "Composition root da ingestao. Roda uma vez por configuracao de corpus. Recria a colecao a cada execucao para nao duplicar chunks.")
+    Container(ask, "ask.py", "Python 3.12 / CLI", "Composition root da consulta. REPL ou resposta unica. Exibe procedencia e latencia por estagio.")
+    Container(pacote, "rag/", "Pacote Python em camadas", "facade, service, repository, presenter e domain (ADR-005, 006, 007). Nenhuma camada chama sys.exit nem escreve em stdout por conta propria.")
+    ContainerDb(chroma, "Chroma", "chromadb/chroma:1.5.9 em Docker", "Armazem vetorial. API v2 na porta 8000; a v1 responde 410 Gone.")
+    ContainerDb(volume, "chroma_data", "Volume Docker montado em /data", "Persistencia da colecao 'livros'. Artefato derivado e descartavel.")
+}
+
+System_Ext(openai, "API da OpenAI", "Embeddings e geracao")
+
+Container_Boundary(disco, "Sistema de arquivos local") {
+    Container(pdfs, "pdfs/*.pdf", "Arquivos", "Corpus indexado. Fonte de verdade.")
+    Container(controle, "pdfs/fora-do-corpus/", "Arquivos", "Corpus de controle. NUNCA indexado: o glob e nao recursivo por desenho (ADR-004).")
+}
+
+Rel(estudante, ingest, "python ingest.py", "argv")
+Rel(estudante, ask, "python ask.py [pergunta]", "argv / stdin")
+
+Rel(ingest, pacote, "usa")
+Rel(ask, pacote, "usa")
+
+Rel(ingest, pdfs, "Le com glob nao recursivo", "filesystem")
+Rel_D(controle, ingest, "Ausente por construcao", "nunca lido")
+
+Rel(pacote, openai, "Embeddings e chat completions", "HTTPS")
+Rel(pacote, chroma, "Grava e consulta vetores", "HTTP :8000")
+Rel(chroma, volume, "Persiste", "/data")
+
+SHOW_LEGEND()
+@enduml

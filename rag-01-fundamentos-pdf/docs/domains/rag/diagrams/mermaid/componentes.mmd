@@ -1,0 +1,64 @@
+---
+title: Camadas e dependências (ADR-005 + 006 + 007)
+---
+flowchart TD
+    subgraph ROOTS["ENTRYPOINTS — argparse + composition root"]
+        ING["ingest.py"]
+        ASK["ask.py"]
+    end
+
+    subgraph FAC["facade/ — casos de uso, sem terminal"]
+        IFAC["IngestionFacade<br/><i>ingest() → IngestionReport</i>"]
+        QFAC["QueryFacade<br/><i>ask() → Answer</i>"]
+    end
+
+    subgraph SVC["service/ — regra de uma responsabilidade"]
+        HEALTH["HealthChecker"]
+        CHUNK["ChunkingService"]
+        RETR["RetrievalService"]
+        PROMPT["PromptBuilder"]
+        GEN["GenerationService"]
+    end
+
+    subgraph REPO["repository/ — fontes externas"]
+        READER["DocumentReader"]
+        VEC["VectorRepository"]
+    end
+
+    subgraph PRES["presenter/ — unico que escreve"]
+        REP["ConsoleReporter"]
+    end
+
+    subgraph BASE["base — folhas do grafo"]
+        MODELS["domain.models<br/><i>SearchHit, Answer,<br/>IngestionReport</i>"]
+        CFG["config<br/><i>RagProperties</i>"]
+        EXC["exceptions"]
+    end
+
+    ING --> IFAC & HEALTH & REP & CFG & EXC
+    ASK --> QFAC & HEALTH & REP & CFG & EXC
+
+    IFAC --> READER & CHUNK & VEC & MODELS
+    QFAC --> RETR & PROMPT & GEN & MODELS
+
+    RETR --> VEC & MODELS & EXC
+    PROMPT --> MODELS
+    VEC --> MODELS
+    REP --> MODELS
+    READER --> EXC
+    CHUNK --> EXC
+    HEALTH --> CFG & EXC
+    CFG --> EXC
+
+    classDef root fill:#1a3a52,stroke:#4a90d9,color:#fff
+    classDef fac fill:#2a3a5a,stroke:#6a90d9,color:#fff
+    classDef svc fill:#1a4a2e,stroke:#4ad98a,color:#fff
+    classDef repo fill:#3a2a4a,stroke:#a97ad9,color:#fff
+    classDef pres fill:#4a2a3a,stroke:#d97aa9,color:#fff
+    classDef base fill:#4a3a1a,stroke:#d9a94a,color:#fff
+    class ING,ASK root
+    class IFAC,QFAC fac
+    class HEALTH,CHUNK,RETR,PROMPT,GEN svc
+    class READER,VEC repo
+    class REP pres
+    class MODELS,CFG,EXC base

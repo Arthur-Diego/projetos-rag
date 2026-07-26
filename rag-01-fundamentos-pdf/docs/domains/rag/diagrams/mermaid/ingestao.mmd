@@ -1,0 +1,43 @@
+---
+title: Fluxo de ingestão (ingest.py)
+---
+flowchart TD
+    START([python ingest.py]) --> V1{"OPENAI_API_KEY<br/>definida?"}
+    V1 -->|não| E1["exit 1<br/>copie .env.example para .env"]
+    V1 -->|sim| V2{"Chroma responde<br/>/api/v2/heartbeat?"}
+    V2 -->|não| E2["exit 1<br/>docker compose up -d chroma"]
+    V2 -->|sim| V3{"overlap menor<br/>que size?"}
+    V3 -->|não| E3["exit 1<br/>parametros invalidos"]
+
+    V3 -->|sim| G["glob pdfs/*.pdf<br/>NAO recursivo"]
+    G -.->|fora-do-corpus/ nunca entra<br/>ADR-004| CTRL[["pdfs/fora-do-corpus/<br/>corpus de controle"]]
+    G --> V4{"achou algum PDF?"}
+    V4 -->|não| E4["exit 1<br/>pdfs/ vazio"]
+
+    V4 -->|sim| L["PyPDFLoader<br/>1 Document por pagina<br/>metadados: source, page"]
+    L --> F{"pagina tem texto?"}
+    F -->|não| SKIP["avisa e descarta<br/>hipotese: PDF escaneado"]
+    SKIP --> V5
+    F -->|sim| V5{"sobrou alguma<br/>pagina com texto?"}
+    V5 -->|não| E5["exit 1<br/>nenhum texto extraido"]
+
+    V5 -->|sim| C{"colecao ja existe?"}
+    C -->|sim| DEL["reporta N chunks antigos<br/>e apaga a colecao"]
+    C -->|não| SPLIT
+    DEL --> SPLIT["RecursiveCharacterTextSplitter<br/>size 1000 / overlap 150"]
+
+    SPLIT --> EMB["OpenAIEmbeddings em lote<br/>text-embedding-3-small - 1536d<br/>max_retries=3"]
+    EMB -.->|429 ou 5xx| RETRY["backoff exponencial<br/>do proprio SDK da OpenAI<br/>ate 3 tentativas"]
+    RETRY -.-> EMB
+    EMB -.->|401| E6["exit 1<br/>o SDK nao retenta 401"]
+
+    EMB --> W[("colecao 'livros'<br/>volume chroma_data")]
+    W --> OUT["reporta paginas, chunks<br/>e tempo total"]
+    OUT --> OK([exit 0])
+
+    classDef erro fill:#4a1a1a,stroke:#d94a4a,color:#fff
+    classDef ok fill:#1a4a2e,stroke:#4ad98a,color:#fff
+    classDef nota fill:#3a3a1a,stroke:#d9c94a,color:#fff
+    class E1,E2,E3,E4,E5,E6 erro
+    class OK,OUT ok
+    class CTRL,SKIP,RETRY nota

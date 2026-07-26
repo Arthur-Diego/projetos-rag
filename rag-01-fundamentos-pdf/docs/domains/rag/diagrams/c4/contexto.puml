@@ -1,0 +1,17 @@
+@startuml contexto
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Context.puml
+
+title C4 nivel 1 - Contexto - rag-01-fundamentos-pdf
+
+Person(estudante, "Estudante", "Unico usuario. Opera por linha de comando, na propria maquina.")
+
+System(rag, "rag-01-fundamentos-pdf", "Pipeline de RAG sobre PDF. Indexa um corpus local e responde perguntas fundamentadas nele, exibindo a procedencia de cada resposta.")
+
+System_Ext(openai, "API da OpenAI", "text-embedding-3-small (1536d) e gpt-4o-mini. Unica dependencia externa e unica fonte de custo.")
+
+Rel(estudante, rag, "Indexa o corpus e faz perguntas", "CLI")
+Rel(rag, openai, "Gera embeddings e respostas", "HTTPS")
+Rel_Back(estudante, rag, "Resposta em stdout, procedencia em stderr", "CLI")
+
+SHOW_LEGEND()
+@enduml

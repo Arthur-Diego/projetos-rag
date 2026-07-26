@@ -1,0 +1,34 @@
+# ── segredos ───────────────────────────────────────────────
+.env
+*.key
+
+# ── Python ─────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── Node ───────────────────────────────────────────────────
+node_modules/
+dist/
+*.local
+
+# ── corpora: os PDFs sao seus, nao do repositorio ──────────
+# A ESTRUTURA de pastas e versionada: pdfs/fora-do-corpus/ e o
+# mecanismo do ADR-004 e precisa existir num clone novo.
+*/pdfs/*
+!*/pdfs/.gitkeep
+!*/pdfs/fora-do-corpus/
+*/pdfs/fora-do-corpus/*
+!*/pdfs/fora-do-corpus/.gitkeep
+
+# ── artefatos locais ───────────────────────────────────────
+data/
+*.log
+
+# ── IDEs ───────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp

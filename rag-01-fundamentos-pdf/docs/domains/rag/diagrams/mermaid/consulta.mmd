@@ -1,0 +1,44 @@
+---
+title: Fluxo de consulta (ask.py)
+---
+flowchart TD
+    START([python ask.py]) --> V1{"chave e Chroma ok?"}
+    V1 -->|não| E1["exit 1<br/>mensagem acionavel"]
+    V1 -->|sim| V2{"colecao existe<br/>e tem chunks?"}
+    V2 -->|não| E2["exit 1<br/>rode ingest.py primeiro"]
+
+    V2 -->|sim| MODE{"veio pergunta<br/>por argv?"}
+    MODE -->|sim| Q[pergunta unica]
+    MODE -->|não| REPL["REPL: reaproveita<br/>cliente e colecao"]
+    REPL --> READ["le a entrada"]
+    READ --> V3{"o que veio?"}
+    V3 -->|"linha vazia"| READ
+    V3 -->|"comando de saida,<br/>EOF ou Ctrl+C"| BYE([exit 0])
+    V3 -->|"uma pergunta"| Q
+
+    Q --> EMBQ["embeda a pergunta"]
+    EMBQ --> SEARCH["similarity_search_with_score<br/>k=4"]
+    DB[("colecao 'livros'")] -.-> SEARCH
+    SEARCH --> T1["mede latencia de busca"]
+
+    T1 --> PROMPT["monta o prompt:<br/>instrucao de fundamentacao<br/>+ frase de escape<br/>+ contexto numerado<br/>+ pergunta"]
+    PROMPT --> LLM["gpt-4o-mini<br/>temperatura 0"]
+    LLM --> T2["mede latencia de geracao"]
+
+    T2 --> DEC{"o contexto<br/>respondia?"}
+    DEC -->|sim| ANS["resposta fundamentada"]
+    DEC -->|não| ESC["'Nao encontrei essa informacao<br/>nos documentos.'<br/>literal, verificavel por string"]
+
+    ANS --> OUT1[/"stdout: so a resposta"/]
+    ESC --> OUT1
+    OUT1 --> OUT2[/"stderr: chunks, source, page,<br/>distancia e latencias por estagio"/]
+    OUT2 --> BACK{"modo REPL?"}
+    BACK -->|sim| READ
+    BACK -->|não| OK([exit 0])
+
+    classDef erro fill:#4a1a1a,stroke:#d94a4a,color:#fff
+    classDef ok fill:#1a4a2e,stroke:#4ad98a,color:#fff
+    classDef escape fill:#3a3a1a,stroke:#d9c94a,color:#fff
+    class E1,E2 erro
+    class OK,BYE ok
+    class ESC escape
