@@ -1,0 +1,50 @@
+---
+title: Fluxo de ingestão (python ingest.py e POST /ingest)
+---
+flowchart TD
+    START(["ingest.py ou POST /ingest"]) --> V1{"OPENAI_API_KEY<br/>presente?"}
+    V1 -->|não| E1["InvalidConfigurationException - 500<br/>falha ao construir RagProperties,<br/>antes de qualquer chamada"]
+    V1 -->|sim| V3{"Qdrant responde<br/>em localhost:6333?"}
+    V3 -->|não| E3["ServiceUnavailableException - 503<br/>detail traz: docker compose up -d qdrant"]
+    V3 -->|sim| V2{"chunk_size e chunk_overlap<br/>dentro das faixas de /capabilities?"}
+    V2 -->|não| E2["InvalidParameterException - 422<br/>validado ao construir o ChunkingService,<br/>antes de ler o corpus"]
+
+    V2 -->|sim| G["DocumentReader.files()<br/><b>glob pdfs/*.pdf, NÃO recursivo</b>"]
+    G -.->|"o glob nunca alcança esta pasta<br/>(invariante 6, verificável por grep)"| CTRL[["pdfs/fora-do-corpus/<br/>corpus de controle do teste negativo<br/><i>a ausência é o mecanismo</i>"]]
+    G --> V4{"achou algum PDF<br/>em pdfs/?"}
+    V4 -->|não| E4["EmptyCorpusException - 422<br/>sem chamada paga"]
+
+    V4 -->|sim| LIST["IngestionFacade.files()<br/><i>exposto separado de ingest(): o corpus de controle<br/>indexado por engano aparece antes do trabalho começar</i>"]
+    LIST --> L["DocumentReader.read()<br/>pypdf, uma página por documento<br/>metadados source e page"]
+    L --> F{"a página tem<br/>texto extraível?"}
+    F -->|não| SKIP["descarta e conta em discarded_pages<br/><i>hipótese: PDF escaneado</i>"]
+    SKIP --> V5
+    F -->|sim| V5{"sobrou alguma<br/>página com texto?"}
+    V5 -->|não| E5["NoExtractableTextException - 422<br/>corpus inteiro sem texto é erro"]
+
+    V5 -->|sim| SPLIT["ChunkingService.split()<br/>RecursiveCharacterTextSplitter<br/>size 1000 / overlap 150, procedência preservada"]
+    SPLIT --> REC["VectorRepository.recreate()<br/><i>só depois de dividir: recriar antes deixaria a coleção<br/>vazia se a divisão falhasse</i>"]
+    REC --> EMB["OpenAIEmbeddings em lote<br/>text-embedding-3-small, 1536 dimensões"]
+    EMB -.->|"429 ou 5xx"| RETRY["backoff exponencial do próprio SDK"]
+    RETRY -.-> EMB
+    EMB -.->|"401 ou indisponível"| E6["ServiceUnavailableException - 503"]
+
+    EMB --> W[("coleção no Qdrant<br/>volume Docker, derivada e descartável")]
+    W --> OUT["IngestionReport<br/>pages, discarded_pages, chunks,<br/>chunk_size, chunk_overlap,<br/>previous_chunks, seconds"]
+    OUT --> PRE{"qual superfície<br/>chamou?"}
+    PRE -->|ingest.py| REP["ConsoleReporter<br/>stdout: páginas → chunks"]
+    PRE -->|POST /ingest| JSONP["JsonPresenter<br/>200 conforme o contrato 1.1.0"]
+    REP --> OK(["fim"])
+    JSONP --> OK
+
+    %% Recriar, e não acrescentar: acrescentar duplicaria chunks e k=4
+    %% devolveria cópias do mesmo trecho, sem nenhum aviso.
+
+    classDef erro fill:#4a1a1a,stroke:#d94a4a,color:#fff
+    classDef ok fill:#1a4a2e,stroke:#4ad98a,color:#fff
+    classDef nota fill:#3a3a1a,stroke:#d9c94a,color:#fff
+    classDef store fill:#3a2a4a,stroke:#a97ad9,color:#fff
+    class E1,E2,E3,E4,E5,E6 erro
+    class OK,OUT ok
+    class CTRL,SKIP,RETRY nota
+    class W store

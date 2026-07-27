@@ -1,0 +1,78 @@
+# Qdrant como servico (ADR-001). Suba antes de qualquer entrypoint:
+#   docker compose up -d qdrant
+#
+# Portas: 6333 REST (e o painel), 6334 gRPC. O langchain-qdrant fala REST por
+# padrao; a 6334 fica exposta so para inspecao com o cliente nativo.
+#
+# Painel:  http://localhost:6333/dashboard
+# Saude:   curl localhost:6333/healthz     (a partir do HOST, nao do container)
+#
+# Healthcheck VALIDADO contra a imagem em 27/07/2026:
+#
+#   docker compose up -d qdrant
+#   docker inspect --format '{{.State.Health.Status}}' rag02-qdrant   -> healthy
+#
+# A imagem do Qdrant nao traz curl nem wget, mas traz bash, entao o teste por
+# TCP puro roda. Ele prova que a porta aceita conexao, NAO que a API responde;
+# para verificar a API de fato, use, a partir do host:
+#
+#   curl localhost:6333/healthz
+#
+# Se um dia a imagem deixar de trazer bash, o container fica "starting" para
+# sempre. Nesse caso troque o teste ou remova o bloco: healthcheck que nao roda
+# e pior que nenhum, porque o `up -d` reporta saudavel um servico que nao esta.
+#
+# VERSAO: v1.18.1 casa com o qdrant-client 1.18.0 que o langchain-qdrant traz.
+# A v1.15.1, usada primeiro, funcionava mas emitia a cada conexao:
+#   "Qdrant client version 1.18.0 is incompatible with server version 1.15.1"
+# Alinhar a imagem ao cliente e mais seguro que fixar o cliente para tras, que
+# brigaria com a resolucao de dependencia do langchain-qdrant.
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.1
+    container_name: rag02-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # Chroma NAO faz parte do projeto: existe so para o exercicio 3 do guia e o
+  # criterio de aceite 7 do PRD, que manda trocar o armazem vetorial numa linha
+  # do composition root. Nao sobe por padrao.
+  #
+  #   docker compose --profile experimento up -d chroma
+  #
+  # Mesma imagem e mesmo healthcheck do Projeto 1, que ja foram validados la.
+  #
+  # Porta 8001 no HOST, nao 8000: o container do Projeto 1 ja ocupa a 8000 e os
+  # dois convivem na mesma maquina. Reaproveitar o Chroma do vizinho funcionaria
+  # (colecoes diferentes), mas acoplaria este projeto a outro repositorio estar
+  # de pe, e o experimento deixaria de ser reprodutivel sozinho.
+  chroma:
+    image: chromadb/chroma:1.5.9
+    container_name: rag02-chroma
+    profiles: ["experimento"]
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
+  chroma_data:

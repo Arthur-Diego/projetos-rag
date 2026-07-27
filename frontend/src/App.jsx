@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ErroDaApi } from "./api";
+import { Conversa } from "./Conversa";
 import { Parametros } from "./Parametros";
 import "./App.css";
 
@@ -25,7 +26,9 @@ export default function App() {
   const [pergunta, setPergunta] = useState("");
 
   const [ocupado, setOcupado] = useState(false);
-  const [resposta, setResposta] = useState(null);
+  // Os turnos já ocorridos: `{ pergunta, dados }`. Num backend sem a feature
+  // `history` a lista nunca passa de um item, e a tela fica idêntica à de antes.
+  const [turnos, setTurnos] = useState([]);
   const [relatorio, setRelatorio] = useState(null);
   const [erro, setErro] = useState(null);
 
@@ -33,6 +36,9 @@ export default function App() {
     setSaude(null);
     setCapacidades(null);
     setErroDeConexao(null);
+    // Trocar de backend descarta a conversa: a transcrição só faz sentido
+    // contra o corpus e o modelo que a produziram.
+    setTurnos([]);
     try {
       const [s, c] = await Promise.all([api.saude(url), api.capacidades(url)]);
       setSaude(s);
@@ -61,15 +67,37 @@ export default function App() {
   const mudarOpcao = (nome, valor) =>
     setOpcoes((atual) => ({ ...atual, [nome]: valor }));
 
+  const conectado = Boolean(saude && capacidades);
+  const podeIndexar = capacidades?.features?.includes("ingest");
+  const podePerguntar = capacidades?.features?.includes("ask");
+  // A feature `history` significa: guarde a transcrição e devolva a cada
+  // pergunta. O backend não guarda conversa nenhuma.
+  const podeConversar = capacidades?.features?.includes("history");
+
   async function enviar(e) {
     e.preventDefault();
     setErro(null);
-    setResposta(null);
     setRelatorio(null);
     setOcupado(true);
     try {
       if (operacao === "ask") {
-        setResposta(await api.perguntar(backend, pergunta, opcoes));
+        const enviados = podeConversar
+          ? {
+              ...opcoes,
+              // A transcrição vai INTEIRA; quem trunca é o servidor, pela
+              // janela que ele declarou em /capabilities.
+              history: turnos.map((t) => ({
+                question: t.pergunta,
+                answer: t.dados.text,
+              })),
+            }
+          : opcoes;
+
+        const dados = await api.perguntar(backend, pergunta, enviados);
+        const turno = { pergunta, dados };
+        // Sem conversa, cada pergunta substitui a anterior, como antes.
+        setTurnos((atuais) => (podeConversar ? [...atuais, turno] : [turno]));
+        if (podeConversar) setPergunta("");
       } else {
         setRelatorio(await api.indexar(backend, opcoes));
         await conectar(backend); // a contagem de chunks mudou
@@ -80,10 +108,6 @@ export default function App() {
       setOcupado(false);
     }
   }
-
-  const conectado = Boolean(saude && capacidades);
-  const podeIndexar = capacidades?.features?.includes("ingest");
-  const podePerguntar = capacidades?.features?.includes("ask");
 
   return (
     <div className="app">
@@ -170,11 +194,15 @@ export default function App() {
                 className="pergunta"
                 value={pergunta}
                 onChange={(e) => setPergunta(e.target.value)}
-                placeholder="Segundo o texto, o que a Pedra Filosofal faz?"
+                placeholder={
+                  podeConversar && turnos.length
+                    ? "E se eu vender dez?"
+                    : "Segundo o texto, o que a Pedra Filosofal faz?"
+                }
                 disabled={ocupado}
               />
               <button type="submit" disabled={ocupado || !pergunta.trim()}>
-                {ocupado ? "Buscando…" : "Perguntar"}
+                {ocupado ? "Buscando…" : podeConversar ? "Enviar" : "Perguntar"}
               </button>
             </div>
           ) : (
@@ -199,12 +227,21 @@ export default function App() {
         </section>
       )}
 
-      {resposta && <Resposta dados={resposta} />}
+      {podeConversar
+        ? <Conversa turnos={turnos} aoLimpar={() => setTurnos([])} />
+        : turnos.length > 0 && <Resposta dados={turnos[turnos.length - 1].dados} />}
       {relatorio && <Relatorio dados={relatorio} />}
     </div>
   );
 }
 
+/**
+ * Resposta única, para backends que não declaram a feature `history`.
+ *
+ * Os acessos a `timings` e `hits` são protegidos: eles são obrigatórios no
+ * contrato, mas um backend em desenvolvimento pode não emiti-los, e uma tela
+ * que quebra inteira por causa de um campo ausente esconde o erro de verdade.
+ */
 function Resposta({ dados }) {
   return (
     <section className="resposta">
@@ -214,13 +251,15 @@ function Resposta({ dados }) {
       </div>
 
       <div className="metricas">
-        <span>busca {dados.timings.search_s}s</span>
-        <span>geração {dados.timings.generation_s}s</span>
-        <span>{dados.hits.length} chunks</span>
+        {dados.timings?.search_s != null && <span>busca {dados.timings.search_s}s</span>}
+        {dados.timings?.generation_s != null && (
+          <span>geração {dados.timings.generation_s}s</span>
+        )}
+        <span>{dados.hits?.length ?? 0} chunks</span>
       </div>
 
       <ol className="trechos">
-        {dados.hits.map((h, i) => (
+        {(dados.hits ?? []).map((h, i) => (
           <li key={i}>
             <div className="trecho-cabecalho">
               <span className="fonte">

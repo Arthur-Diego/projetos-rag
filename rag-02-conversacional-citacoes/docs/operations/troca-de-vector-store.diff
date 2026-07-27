@@ -1,0 +1,51 @@
+Critério de aceite 7 do PRD: trocar o armazém vetorial numa linha do
+composition root. Executado em 27/07/2026, com os dois containers no ar.
+
+Pré-requisito:
+    docker compose --profile experimento up -d chroma     # porta 8001 no host
+
+--- a/composition.py
++++ b/composition.py
+@@
+-from rag.repository.vector_repository import QdrantVectorRepository, VectorRepository
++from rag.repository.chroma_vector_repository import ChromaVectorRepository
++from rag.repository.vector_repository import VectorRepository
+@@ def build_repository(properties: RagProperties) -> VectorRepository:
+-    return QdrantVectorRepository(
++    return ChromaVectorRepository(
+         host=properties.qdrant_host,
+-        port=properties.qdrant_port,
++        port=8001,
+         collection=properties.collection,
+         embeddings=create_embeddings(
+             properties.embedding_model, properties.max_retries, properties.request_timeout_s
+         ),
+         timeout_s=properties.request_timeout_s,
+     )
+
+Uma linha de construção trocada, mais o import, mais a porta (o Chroma do
+experimento escuta em 8001 para não colidir com o do Projeto 1, que ocupa a
+8000). Nada em rag/ mudou. A fronteira `VectorRepository` não vazou.
+
+RESULTADO, mesma pergunta nos dois armazéns:
+
+    python ingest.py
+    python ask.py "O que aconteceu quando Harry vestiu a capa de invisibilidade pela primeira vez?"
+
+    Qdrant : melhor distância 0.3588 | citação [2] p.178
+    Chroma : melhor distância 0.7177 | citação [2] p.178
+
+Resposta e procedência idênticas. **As distâncias não são comparáveis entre si**,
+e essa é a diferença que a seção 3 da guideline de arquitetura manda ir ler no
+adaptador em vez de no fluxo:
+
+  - Chroma devolve L2 ao quadrado, que já é distância. O adaptador repassa.
+    Escala com embeddings unitários: 0 idêntico, 2 ortogonal, 4 oposto.
+  - Qdrant com COSINE devolve similaridade, onde MAIOR é mais próximo. O
+    adaptador converte com 1 - similaridade. Escala: 0, 1, 2.
+
+Comparar a distância de um projeto com a de outro é um erro fácil de cometer e
+que não dá sintoma. Ver `rag/repository/chroma_vector_repository.py::search`.
+
+Para reverter: desfaça o diff acima e rode
+`docker compose --profile experimento stop chroma`.

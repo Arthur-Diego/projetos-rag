@@ -253,5 +253,5 @@ Python um container que não existe.
 
 - `rag-01-fundamentos-pdf/docs/adrs/generated/RAG/ADR-005`, `ADR-006`, `ADR-007`
 - `rag-01-fundamentos-pdf/docs/domains/rag/diagrams/c4/componente.puml`
-- `rag-01-fundamentos-pdf/docs/guidelines/python-development-guidelines.md`
+- `docs/guidelines/python-development-guidelines.md` (workspace)
 - `docs/contracts/rag-api.yaml` (contrato HTTP compartilhado)

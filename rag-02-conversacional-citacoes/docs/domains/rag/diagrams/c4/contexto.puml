@@ -1,0 +1,26 @@
+@startuml contexto
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Context.puml
+
+title C4 nivel 1 - Contexto - rag-02-conversacional-citacoes
+
+Person(estudante, "Estudante", "Unico usuario. Opera por linha de comando e por um frontend local, na propria maquina. Nao ha segundo perfil, e e essa premissa que barateia a decisao de sessao.")
+
+System(rag, "rag-02-conversacional-citacoes", "RAG conversacional. Reescreve a pergunta contra o historico antes de buscar, e cita a fonte de cada afirmacao com procedencia verificavel ate a pagina.")
+
+System_Ext(openai, "API da OpenAI", "text-embedding-3-small (1536d) e gpt-4o-mini. Duas chamadas de geracao por turno, nao uma: reescrita e resposta.")
+
+System_Ext(qdrant, "Qdrant", "Armazem vetorial em container local. Substitui o Chroma do Projeto 1 (ADR-001).")
+
+Rel(estudante, rag, "Indexa o corpus, conversa e confere as citacoes", "CLI e HTTP")
+Rel(rag, openai, "Reescreve a pergunta, gera embeddings e respostas", "HTTPS")
+Rel(rag, qdrant, "Grava e busca vetores", "HTTP :6333")
+Rel_Back(estudante, rag, "Resposta com [n], query reescrita e trechos recuperados", "CLI e HTTP")
+
+note right of estudante
+  O estudante e dono da transcricao (ADR-002).
+  O sistema recebe a conversa a cada pergunta,
+  usa e esquece. Nao ha sessao do lado de la.
+end note
+
+SHOW_LEGEND()
+@enduml

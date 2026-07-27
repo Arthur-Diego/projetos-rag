@@ -267,3 +267,133 @@ button[type="submit"]:disabled { opacity: 0.45; cursor: not-allowed; }
 .erro strong { font-family: var(--mono); font-size: 0.9rem; color: var(--ferrugem); }
 .erro p { margin: 0.35rem 0; font-size: 0.9rem; }
 .erro code { font-family: var(--mono); font-size: 0.7rem; color: var(--tinta-2); }
+
+/* ── conversa ───────────────────────────────────────────────
+   Estilos da feature `history` do contrato. Nada aqui é específico de um
+   projeto: são acionados quando o backend declara a feature, e ficam
+   inertes quando ele não declara. */
+
+.conversa { margin-top: 1.5rem; }
+
+.conversa-cabecalho {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--linha);
+  padding-bottom: 0.4rem;
+  margin-bottom: 1rem;
+}
+.conversa-cabecalho h2 { margin: 0; font-size: 1rem; letter-spacing: 0.02em; }
+
+button.secundario {
+  background: none;
+  border: 1px solid var(--linha);
+  color: var(--tinta-2);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+button.secundario:hover { color: var(--ferrugem); border-color: var(--ferrugem); }
+
+.turno {
+  border-left: 2px solid var(--linha);
+  padding: 0 0 1.25rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.turno-pergunta {
+  font-weight: 600;
+  margin: 0 0 0.6rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.turno-numero {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--tinta-2);
+  border: 1px solid var(--linha);
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  flex-shrink: 0;
+}
+
+/* A reescrita: o critério 2 exige que ela seja visível, não descobrível. */
+.reescrita {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--tinta-2);
+  background: var(--papel-2);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.reescrita summary { cursor: pointer; }
+.reescrita.reescreveu { border-left: 2px solid var(--ocre); }
+.reescrita.reescreveu summary { color: var(--ocre); }
+.reescrita em { font-style: normal; opacity: 0.75; }
+.reescrita-linha {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0;
+  align-items: baseline;
+}
+.reescrita-linha span { flex-shrink: 0; opacity: 0.7; min-width: 6.5rem; }
+.reescrita-linha code { color: var(--tinta); }
+
+/* Rótulo [n] clicável dentro do texto da resposta. */
+.citacao-rotulo {
+  font-family: var(--mono);
+  font-size: 0.72em;
+  vertical-align: super;
+  background: none;
+  border: none;
+  padding: 0 0.05em;
+  color: var(--verde);
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.citacao-rotulo:hover { color: var(--ocre); }
+
+.citacoes { list-style: none; padding: 0; margin: 0.75rem 0 0; }
+.citacao {
+  border-left: 2px solid var(--verde);
+  background: var(--papel-2);
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.5rem;
+  border-radius: 0 4px 4px 0;
+}
+.citacao .rotulo {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--verde);
+  font-weight: 700;
+}
+
+.aviso-citacao {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ferrugem);
+  border: 1px dashed var(--ferrugem);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  margin: 0.6rem 0 0;
+}
+
+.trechos-recuperados {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+.trechos-recuperados summary {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--tinta-2);
+  cursor: pointer;
+}
+
+.citacao.destacada {
+  border-left-color: var(--ocre);
+  background: color-mix(in srgb, var(--ocre) 12%, var(--papel-2));
+}

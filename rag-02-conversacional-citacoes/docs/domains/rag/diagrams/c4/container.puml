@@ -1,0 +1,57 @@
+@startuml container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Container.puml
+
+title C4 nivel 2 - Containers - rag-02-conversacional-citacoes
+
+Person(estudante, "Estudante", "Unico usuario")
+
+System_Boundary(sistema, "rag-02-conversacional-citacoes") {
+  Container(ingest, "ingest.py", "Python 3.12", "Entrypoint de indexacao. Le pdfs/*.pdf, NAO recursivo: pdfs/fora-do-corpus/ fica de fora de proposito.")
+  Container(ask, "ask.py", "Python 3.12", "Entrypoint de turno unico, SEM historico e sem REPL (ADR-006). Existe para a matriz de recusa ser scriptavel.")
+  Container(chat, "chat.py", "Python 3.12", "REPL. E ELE quem guarda a transcricao: no cliente, nunca no servidor.")
+  Container(serve, "serve.py", "FastAPI + uvicorn", "API HTTP em 127.0.0.1:8080. Implementa o contrato compartilhado 1.1.0. Magro: so publica o app.")
+  Container(pacote, "rag/", "Pacote Python em camadas", "facade, service, repository, presenter, domain, api. Toda a logica. Sem estado de conversa.")
+  ContainerDb(corpus, "pdfs/", "Sistema de arquivos", "Corpus normativo indexado. pdfs/fora-do-corpus/ e o corpus de controle, jamais alcancado pelo glob.")
+}
+
+Container_Ext(frontend, "frontend/", "React + Vite", "Cliente generico do contrato. Guarda a transcricao no navegador e a devolve em options.history. Liga a interface de conversa quando o backend declara a feature history.")
+
+ContainerDb_Ext(qdrant, "Qdrant", "Container Docker, volume qdrant_data", "Colecao 'normas', vetores de 1536 dimensoes, metrica COSINE. Indice derivado e descartavel.")
+
+System_Ext(openai, "API da OpenAI", "Embeddings e geracao")
+
+Rel(estudante, ingest, "Indexa uma vez", "shell")
+Rel(estudante, ask, "Pergunta e sai", "shell")
+Rel(estudante, chat, "Conversa", "shell")
+Rel(estudante, frontend, "Conversa pela interface", "navegador")
+
+Rel(frontend, serve, "POST /ask com options.history a cada turno", "HTTP/JSON")
+Rel(serve, frontend, "Answer com citations e rewritten_question", "HTTP/JSON")
+
+Rel(ingest, pacote, "IngestionFacade")
+Rel(ask, pacote, "QueryFacade")
+Rel(chat, pacote, "QueryFacade, passando a Conversation")
+Rel(serve, pacote, "rag.api sobre as mesmas facades")
+
+Rel(ingest, corpus, "Le", "pypdf")
+Rel(pacote, qdrant, "Grava e busca vetores", "HTTP :6333")
+Rel(pacote, openai, "Reescrita, embeddings e resposta", "HTTPS")
+
+note as ADR002
+  **ADR-002: o servidor nao guarda conversa.**
+  Nao ha dicionario de sessao, cache de conversa
+  nem conversation_id em nenhum container aqui
+  dentro. A transcricao vive em chat.py (memoria
+  do processo) ou no navegador, e viaja inteira a
+  cada requisicao.
+
+  Consequencia: nada vaza entre requisicoes, nada
+  precisa ser limpo, e nada morre no restart
+  porque nada vivia la.
+end note
+
+ADR002 .. serve
+ADR002 .. chat
+
+SHOW_LEGEND()
+@enduml
