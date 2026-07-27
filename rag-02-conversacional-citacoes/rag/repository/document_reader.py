@@ -31,15 +31,13 @@ class DocumentReader(Protocol):
         """
         ...
 
-    def read(self) -> list[Page]:
-        ...
+    def read(self) -> tuple[list[Page], int]:
+        """As páginas com texto, e quantas foram descartadas por estarem vazias.
 
-    def total_pages(self) -> int:
-        """Quantas páginas existem, com ou sem texto extraível.
-
-        Faz parte do contrato porque a `IngestionFacade` a chama para calcular
-        `discarded_pages`. Estava só na implementação concreta, e o mypy pegou:
-        é exatamente o tipo de buraco que um `Protocol` esconde em runtime.
+        **Uma passada só.** A contagem de descartes sai do mesmo laço que lê:
+        uma versão anterior deste código tinha um `total_pages()` separado que
+        reabria todos os PDFs só para contar, o que dobrava o trabalho de I/O
+        sem nenhum ganho.
         """
         ...
 
@@ -63,13 +61,15 @@ class PdfDocumentReader:
         """
         return sorted(self._directory.glob("*.pdf"))
 
-    def read(self) -> list[Page]:
-        """Lê todas as páginas com texto extraível.
+    def read(self) -> tuple[list[Page], int]:
+        """Lê as páginas com texto e conta as descartadas, no mesmo laço.
 
-        Página sem texto é descartada em silêncio aqui e contada pelo chamador:
-        PDF com uma capa em imagem é normal e não deve derrubar a ingestão. O
-        corpus INTEIRO sem texto é outra coisa, e quem decide isso é a facade,
-        que é quem conhece o total.
+        Página sem texto é descartada aqui e apenas contada: PDF com uma capa em
+        imagem é normal e não deve derrubar a ingestão. O corpus INTEIRO sem
+        texto é outra coisa, e quem decide isso é a facade.
+
+        A contagem de descartes é o primeiro sinal de PDF escaneado, e por isso
+        sobe junto em vez de ser recalculada depois.
 
         Raises:
             EmptyCorpusException: se não há nenhum PDF no diretório.
@@ -78,23 +78,16 @@ class PdfDocumentReader:
         if not paths:
             raise EmptyCorpusException(
                 f"nenhum PDF em {self._directory}.\n"
-                "       coloque o corpus normativo lá e rode de novo."
+                "       coloque o corpus lá e rode de novo."
             )
 
         pages: list[Page] = []
+        discarded = 0
         for path in paths:
-            reader = PdfReader(str(path))
-            for index, page in enumerate(reader.pages, start=1):
+            for index, page in enumerate(PdfReader(str(path)).pages, start=1):
                 text = (page.extract_text() or "").strip()
                 if text:
                     pages.append(Page(text=text, source=path.name, number=index))
-        return pages
-
-    def total_pages(self) -> int:
-        """Quantas páginas existem, com ou sem texto.
-
-        Necessário para `discarded_pages` do relatório: sem o total bruto, não
-        há como dizer quantas páginas não renderam texto, e essa contagem é o
-        primeiro sinal de PDF escaneado.
-        """
-        return sum(len(PdfReader(str(p)).pages) for p in self.files())
+                else:
+                    discarded += 1
+        return pages, discarded

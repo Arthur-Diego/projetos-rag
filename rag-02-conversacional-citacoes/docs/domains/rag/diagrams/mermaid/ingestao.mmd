@@ -15,7 +15,8 @@ flowchart TD
     V4 -->|não| E4["EmptyCorpusException - 422<br/>sem chamada paga"]
 
     V4 -->|sim| LIST["IngestionFacade.files()<br/><i>exposto separado de ingest(): o corpus de controle<br/>indexado por engano aparece antes do trabalho começar</i>"]
-    LIST --> L["DocumentReader.read()<br/>pypdf, uma página por documento<br/>metadados source e page"]
+    LIST --> REC["VectorRepository.recreate()<br/><b>apaga a coleção ANTES de ler</b><br/><i>falha depois daqui deixa o índice VAZIO: 409 barulhento.<br/>a ordem inversa deixaria dado obsoleto sem sintoma</i>"]
+    REC --> L["DocumentReader.read()<br/>pypdf, uma página por documento<br/>metadados source e page"]
     L --> F{"a página tem<br/>texto extraível?"}
     F -->|não| SKIP["descarta e conta em discarded_pages<br/><i>hipótese: PDF escaneado</i>"]
     SKIP --> V5
@@ -23,8 +24,7 @@ flowchart TD
     V5 -->|não| E5["NoExtractableTextException - 422<br/>corpus inteiro sem texto é erro"]
 
     V5 -->|sim| SPLIT["ChunkingService.split()<br/>RecursiveCharacterTextSplitter<br/>size 1000 / overlap 150, procedência preservada"]
-    SPLIT --> REC["VectorRepository.recreate()<br/><i>só depois de dividir: recriar antes deixaria a coleção<br/>vazia se a divisão falhasse</i>"]
-    REC --> EMB["OpenAIEmbeddings em lote<br/>text-embedding-3-small, 1536 dimensões"]
+    SPLIT --> EMB["OpenAIEmbeddings em lote<br/>text-embedding-3-small, 1536 dimensões"]
     EMB -.->|"429 ou 5xx"| RETRY["backoff exponencial do próprio SDK"]
     RETRY -.-> EMB
     EMB -.->|"401 ou indisponível"| E6["ServiceUnavailableException - 503"]

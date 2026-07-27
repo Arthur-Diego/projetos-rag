@@ -178,8 +178,19 @@ pura sobre esse valor. Registrado em ADR próprio.
 
 **Fluxo de requisição — indexação (`POST /ingest` e `ingest.py`)**
 
-Idêntico ao do Projeto 1: ler `pdfs/*.pdf` (glob não recursivo, de propósito), dividir,
-embedar em lote, recriar a coleção no Qdrant, relatar páginas, chunks e tempo.
+Idêntico ao do Projeto 1, **inclusive na ordem**: conferir que há PDF em `pdfs/*.pdf`
+(glob não recursivo, de propósito), **recriar a coleção**, ler, dividir, embedar em lote,
+gravar, relatar páginas, chunks e tempo.
+
+A coleção é apagada **antes** da leitura, e isso é decisão, não acaso: falha depois disso
+deixa o índice vazio e a próxima consulta devolve 409 `rode python ingest.py`, que é
+barulhento. Na ordem inversa, a falha deixaria o índice **antigo** intacto e a próxima
+consulta responderia com dados obsoletos sem sintoma nenhum.
+
+A única checagem feita antes de destruir é a existência de PDFs: é barata, não depende de
+conseguir ler nenhum deles, e destruir o índice porque alguém rodou com a pasta vazia
+seria punição sem informação. Coberto por `tests/test_ingestion.py`, que fixa a ordem —
+uma versão anterior deste projeto a havia invertido sem registro.
 
 **Fluxo de dados**
 

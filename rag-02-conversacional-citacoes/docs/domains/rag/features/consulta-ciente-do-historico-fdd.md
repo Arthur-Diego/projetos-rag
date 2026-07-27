@@ -127,8 +127,9 @@ Docker Desktop com integração WSL ativa (falhou em 27/07/2026, ver seção 8).
    recebe em `options.history`; `ask.py` não tem transcrição, por decisão do ADR-006.
 2. A borda valida e constrói `Conversation` a partir dos turnos. Turno malformado (sem
    `question` ou sem `answer`) é erro 422, não descarte silencioso.
-3. `QueryFacade.ask(question, conversation, k)` assume. **A facade não conhece HTTP nem
-   terminal.**
+3. `QueryFacade.ask(question, conversation)` assume. **A facade não conhece HTTP nem
+   terminal.** `k`, `history_window` e `conditional_rewrite` não são parâmetros do método:
+   são fixados na construção da facade, que a borda monta por requisição.
 4. Janela: `conversation.last(history_window)`. Aplicada no servidor (ADR-002).
 5. `QueryRewriteService.decide(question, conversation)` devolve `RewriteDecision`:
    - conversa vazia → `used = question`, `rewritten = false`, `reason = primeiro_turno`.
@@ -137,10 +138,13 @@ Docker Desktop com integração WSL ativa (falhou em 27/07/2026, ver seção 8).
    - `conditional_rewrite = true` → heurística léxica (seção 5). Reescreve com
      `reason = pergunta_curta` ou `marcador_anaforico`; pula com
      `reason = pergunta_autossuficiente`.
-6. `RetrievalService.search(decision.used, k)` faz `require_index()` e busca no Qdrant.
-   Devolve `list[SearchHit]` **construída uma vez** e nunca reordenada depois.
-7. `PromptBuilder.build(question, hits, conversation)` numera os trechos de 1 a k, cola
-   `fonte` e `página` a cada um, injeta a frase de escape e a conversa truncada.
+6. `RetrievalService.retrieve(decision.used)` busca no Qdrant com o `k` que recebeu na
+   construção. Devolve `list[SearchHit]` **construída uma vez** e nunca reordenada depois.
+   O `require_index()` é chamado **pela borda**, antes de `ask`, e não dentro da busca:
+   assim o 409 acontece antes de qualquer chamada paga.
+7. `PromptBuilder.build(decision, hits, windowed)` numera os trechos de 1 a k, cola
+   `fonte` e `página` a cada um, injeta a frase de escape e a conversa truncada, e monta a
+   pergunta **resolvida** com a literal do usuário ao lado (ADR-007).
 8. `GenerationService.generate(prompt)` devolve o texto.
 9. `refused = (texto normalizado == ESCAPE_PHRASE)`, calculado na facade.
 10. `CitationResolver.resolve(text, hits)` extrai os rótulos e os resolve **contra a mesma
@@ -163,7 +167,13 @@ Docker Desktop com integração WSL ativa (falhou em 27/07/2026, ver seção 8).
   procedência daquele rótulo é que não é.
 - **Modelo não cita nada.** `citations = []` com `refused = false`. Permitido: detectar
   afirmação sem procedência é avaliação, e avaliação entra no Projeto 3.
-- **Ingestão com corpus vazio.** `EmptyCorpusException`. Sem chamada paga.
+- **Ingestão com corpus vazio.** `EmptyCorpusException`, sem chamada paga, **e sem
+  destruir o índice atual**: a checagem roda antes do `recreate`.
+- **Ingestão que falha depois de começar** (PDF corrompido, corpus sem texto). O índice
+  fica **vazio**, de propósito: a coleção é recriada antes da leitura, e a próxima consulta
+  devolve 409 `rode python ingest.py`. Na ordem inversa a falha deixaria dados obsoletos
+  respondendo em silêncio, que é pior. Decisão herdada do Projeto 1 e fixada por teste em
+  `tests/test_ingestion.py`.
 - **Histórico maior que a janela.** Truncado sem erro. É o caminho normal.
 
 **Diagramas**
@@ -610,7 +620,7 @@ texto normativo continua valendo.
 | 10 | Contrato conforme | **Atendido após correção** | `newman`: 86 de 91 asserções (as 5 falhas são os dois requests que exigem infra oposta, documentado). **O `dd-doc-sync` encontrou duas violações reais que o newman não pegava**: `question` vazia e falha da OpenAI devolviam corpo fora do schema `Problem`. Ambas corrigidas e cobertas por teste. `required` do `rag-api.yaml` inalterado. |
 | 11 | Frontend | **Parcial** | `vite build` limpo. Os três turnos validados pelo caminho HTTP exato do frontend. **Um defeito foi encontrado e corrigido**: o clique no rótulo `[n]` não navegava, porque nenhum `<li>` de citação tinha `id` e o `getElementById` devolvia `null` em silêncio. **A conferência visual no navegador continua pendente** e depende de você. |
 
-**Suíte:** 63 testes, 0 falhas, 0 chamadas à API paga.
+**Suíte:** 73 testes, 0 falhas, 0 chamadas à API paga.
 
 #### Defeito encontrado e corrigido durante a validação
 
@@ -748,7 +758,7 @@ recusa exige avaliação sistemática, que o PRD põe no Projeto 3 em diante.
 | 9 | Apresentação | 8 | `rag/presenter/console_reporter.py`, `rag/presenter/json_presenter.py` (omite, não emite `null`) | 2, 8 (invariante 7) |
 | 10 | Entrypoints CLI | 9 | `ingest.py`, `ask.py`, `chat.py` | 1, 2, 5, 6 |
 | 11 | Camada HTTP | 9 | `rag/api/{app,dependencies,descriptor,error_handlers,schemas}.py`, `rag/api/routes/{ask,ingest,meta}.py`, `serve.py`, `rag/service/health_checker.py` | 10 |
-| 12 | Testes | 8 | `tests/conftest.py` (`FakeLLM`, `FakeVectorRepository`), `tests/test_refusal_matrix.py`, `tests/test_rewrite.py`, `tests/test_citations.py` | 4, 8 |
+| 12 | Testes | 8 | `tests/conftest.py` (`FakeLLM`, `FakeVectorRepository`), `tests/test_refusal_matrix.py`, `tests/test_rewrite.py`, `tests/test_citations.py`, `tests/test_api.py`, `tests/test_ingestion.py` | 4, 8 |
 | 13 | Adaptador Chroma | 3 | `rag/repository/chroma_vector_repository.py` | 7 |
 | 14 | Frontend | 11 | `frontend/src/App.jsx` (transcrição, envio de `options.history`, UI de turnos), `frontend/src/Conversa.jsx` (novo), `Resposta` estendido (citações clicáveis, query reescrita, `timings.rewrite_s` com guarda). `api.js` **não muda**: já repassa `options` cru. `Parametros.jsx` **não muda**: nada específico de projeto entra lá. | 11 |
 | 15 | mypy e verificação de invariantes | 12 | — | 9 |

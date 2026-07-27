@@ -26,6 +26,7 @@ from rag.domain.models import Conversation, Turn
 from rag.exceptions import RagException
 from rag.facade.query_facade import QueryFacade
 from rag.presenter.console_reporter import ConsoleReporter
+from rag.service.health_checker import HealthChecker
 
 EXIT_COMMANDS = {"\\q", "sair", "quit", "exit"}
 CLEAR_COMMANDS = {"\\limpar", "\\clear", "\\reset"}
@@ -106,9 +107,6 @@ def main() -> int:
     try:
         args = parse_args()
         properties = config.load()
-
-        from rag.service.health_checker import HealthChecker
-
         HealthChecker(properties).check()
 
         facade = build_query_facade(
