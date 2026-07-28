@@ -1,0 +1,130 @@
+%% Componentes por camada e dependencias (HLD, secao Componentes; FDD secoes 3, 5 e 11)
+%% Grafo estritamente descendente: entrypoint, facade, service, repository, domain
+%% Amarelo = componente NOVO deste projeto; azul = herdado do Projeto 2 e alterado; cinza = herdado inalterado
+flowchart TD
+    subgraph camadaEntry["Camada entrypoint"]
+        direction LR
+        ingestPy["ingest.py"]
+        askPy["ask.py"]
+        chatPy["chat.py"]
+        servePy["serve.py"]
+        composition["composition.py<br/>composition root"]
+    end
+
+    subgraph camadaApi["Camada api"]
+        direction LR
+        rotaAsk["routes/ask.py"]
+        dependencias["dependencies.py<br/>provedor do reranker com escopo de processo"]
+        descritor["descriptor.py<br/>publica hibrida, rerank, candidates e rrf_k"]
+        tratadores["error_handlers.py<br/>InvalidIndexMappingException antes do genérico"]
+    end
+
+    subgraph camadaPresenter["Camada presenter"]
+        direction LR
+        jsonPresenter["JsonPresenter<br/>score, provenance e os quatro tempos"]
+        consoleReporter["ConsoleReporter<br/>rótulo escolhido pelo campo preenchido"]
+    end
+
+    subgraph camadaFacade["Camada facade"]
+        direction LR
+        queryFacade["QueryFacade<br/>inalterada em orquestração<br/>deixa de cronometrar a busca, ADR-007"]
+        ingestionFacade["IngestionFacade<br/>inalterada em forma"]
+    end
+
+    subgraph camadaService["Camada service"]
+        direction LR
+        rewriteSvc["QueryRewriteService<br/>inalterado"]
+        retrievalSvc["RetrievalService<br/>reescrito: dono do funil de quatro etapas"]
+        fusionSvc["FusionService<br/>NOVO: RRF como função pura, sem dependência"]
+        rerankSvc["RerankService<br/>NOVO: Protocol mais cross encoder local"]
+        promptBuilder["PromptBuilder<br/>inalterado"]
+        generationSvc["GenerationService<br/>inalterado"]
+        citationResolver["CitationResolver<br/>inalterado"]
+        chunkingSvc["ChunkingService<br/>inalterado"]
+        healthChecker["HealthChecker<br/>confere mapping do campo de texto e cluster health"]
+    end
+
+    subgraph camadaRepository["Camada repository"]
+        direction LR
+        vectorRepo["VectorRepository<br/>Protocol: kNN denso e mapping explícito no recreate"]
+        keywordRepo["KeywordRepository<br/>NOVO: Protocol de busca BM25 sobre o mesmo índice"]
+        documentReader["DocumentReader<br/>inalterado, glob pdfs/*.pdf não recursivo"]
+    end
+
+    subgraph camadaDomain["Camada domain"]
+        direction LR
+        searchHit["SearchHit<br/>ganha score e provenance"]
+        provenance["Provenance<br/>NOVO: paths, ranks, rrf_score e rerank_score"]
+        retrievalResult["RetrievalResult<br/>NOVO: hits e os quatro tempos opcionais"]
+        page["Page e Chunk<br/>inalterados"]
+        answer["Answer<br/>ganha os quatro tempos"]
+    end
+
+    subgraph externos["Fora do processo"]
+        direction LR
+        elastic["Elasticsearch<br/>mesmo índice para denso e BM25"]
+        openai["API de embeddings e chat da OpenAI"]
+        crossEncoder["sentence-transformers<br/>cross encoder local, um carregamento por processo"]
+    end
+
+    servePy --> rotaAsk
+    servePy --> descritor
+    servePy --> tratadores
+    rotaAsk --> dependencias
+    rotaAsk --> queryFacade
+    dependencias --> rerankSvc
+    dependencias --> retrievalSvc
+    descritor --> healthChecker
+
+    askPy --> composition
+    chatPy --> composition
+    ingestPy --> composition
+    composition --> queryFacade
+    composition --> ingestionFacade
+    askPy --> consoleReporter
+    chatPy --> consoleReporter
+    servePy --> jsonPresenter
+
+    queryFacade --> rewriteSvc
+    queryFacade --> retrievalSvc
+    queryFacade --> promptBuilder
+    queryFacade --> generationSvc
+    queryFacade --> citationResolver
+    ingestionFacade --> documentReader
+    ingestionFacade --> chunkingSvc
+    ingestionFacade --> vectorRepo
+
+    rewriteSvc --> generationSvc
+    retrievalSvc --> vectorRepo
+    retrievalSvc --> keywordRepo
+    retrievalSvc --> fusionSvc
+    retrievalSvc --> rerankSvc
+    healthChecker --> vectorRepo
+    promptBuilder --> searchHit
+    citationResolver --> searchHit
+    generationSvc --> openai
+    fusionSvc --> searchHit
+    rerankSvc --> searchHit
+    rerankSvc --> crossEncoder
+
+    vectorRepo --> searchHit
+    vectorRepo --> elastic
+    vectorRepo --> openai
+    keywordRepo --> searchHit
+    keywordRepo --> elastic
+    documentReader --> page
+
+    retrievalSvc --> retrievalResult
+    searchHit --> provenance
+    jsonPresenter --> answer
+    consoleReporter --> answer
+
+    classDef novo fill:#fff3bf,stroke:#bf8700,stroke-width:3px,color:#111
+    classDef alterado fill:#e8f4ff,stroke:#1f6feb,stroke-width:2px,color:#111
+    classDef herdado fill:#f6f8fa,stroke:#8b949e,color:#111
+    classDef externo fill:#f3e8ff,stroke:#8250df,stroke-width:2px,color:#111
+
+    class keywordRepo,fusionSvc,rerankSvc,retrievalResult,provenance novo
+    class retrievalSvc,queryFacade,vectorRepo,healthChecker,searchHit,answer,jsonPresenter,consoleReporter,descritor,tratadores,dependencias alterado
+    class ingestionFacade,rewriteSvc,promptBuilder,generationSvc,citationResolver,chunkingSvc,documentReader,page,ingestPy,askPy,chatPy,servePy,composition,rotaAsk herdado
+    class elastic,openai,crossEncoder externo

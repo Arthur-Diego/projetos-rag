@@ -1,0 +1,44 @@
+@startuml contexto
+!pragma charset UTF-8
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Context.puml
+
+LAYOUT_LEFT_RIGHT()
+
+title C1 • Contexto - Funil de recuperação híbrido (rag-03-hybrid-rerank)
+
+Person(estudante, "Estudante", "Único usuário, e um por vez. Opera por linha de comando e por um frontend local, na própria máquina. Concorrência não é caso tratado, e isso está registrado.")
+
+System(rag, "rag-03-hybrid-rerank", "RAG cujo estágio de recuperação virou funil: dois caminhos de busca, fusão por posição e reordenação por cross encoder executado dentro do próprio processo.")
+
+System_Ext(openai, "API da OpenAI", "text-embedding-3-small para os embeddings da ingestão e da query, e gpt-4o-mini para reescrita e geração. Inalterado em relação ao Projeto 2.")
+
+System_Ext(elasticsearch, "Elasticsearch", "Motor de busca em container local. Atende os dois caminhos de busca sobre o mesmo índice e o mesmo documento. Substitui o Qdrant do Projeto 2.")
+
+Rel(estudante, rag, "Indexa o corpus, pergunta e confere as citações contra a página do PDF", "CLI e HTTP")
+Rel(rag, openai, "Embeda a pergunta, reescreve contra o histórico e gera a resposta", "HTTPS")
+Rel(rag, elasticsearch, "Busca densa e busca léxica, em sequência", "HTTP :9200")
+Rel_Back(estudante, rag, "Resposta com [n], procedência por trecho e tempo por estágio", "CLI e HTTP")
+
+note right of rag
+  Cross encoder local
+  • Roda no mesmo processo, em CPU comum
+  • Não é serviço externo e não gasta API
+  • Nenhum trecho do corpus sai da máquina
+end note
+
+note right of elasticsearch
+  Um motor, dois caminhos
+  • kNN denso e BM25 sobre o mesmo índice
+  • Um documento por trecho: vetor e texto juntos
+  • Índice derivado dos PDFs, descartável
+end note
+
+note right of estudante
+  O que muda para quem usa
+  • Menos recusa em pergunta com nome próprio raro
+  • Cada resposta traz o custo de cada estágio
+  • A tabela de medição é o entregável, não o script
+end note
+
+SHOW_LEGEND()
+@enduml

@@ -1,0 +1,90 @@
+%% Turno completo de consulta, do entrypoint ate a resposta (FDD secao 4 e secao 7)
+%% As notas marcam onde cada tempo e medido e por quem
+sequenceDiagram
+    autonumber
+    actor usuario as Usuário
+    participant entry as Entrypoint ask, chat ou serve
+    participant facade as QueryFacade
+    participant rewrite as QueryRewriteService
+    participant retrieval as RetrievalService
+    participant vector as VectorRepository
+    participant keyword as KeywordRepository
+    participant fusion as FusionService
+    participant reranker as RerankService
+    participant prompt as PromptBuilder
+    participant gen as GenerationService
+    participant cita as CitationResolver
+
+    usuario->>entry: pergunta, transcrição e opções
+    entry->>facade: ask com pergunta, histórico e opções
+    activate facade
+
+    facade->>rewrite: decide com pergunta e histórico
+    activate rewrite
+    rewrite-->>facade: pergunta resolvida
+    deactivate rewrite
+    Note over facade,rewrite: tempo rewrite_s, medido pela QueryFacade
+
+    Note over facade,retrieval: ADR-007: a QueryFacade NÃO cronometra mais o estágio de busca.<br/>Ela só repassa os tempos que o RetrievalService mediu por dentro.
+    facade->>retrieval: retrieve com a pergunta resolvida
+    activate retrieval
+
+    retrieval->>retrieval: valida faixas de k, candidates e rrf_k<br/>e a relação k menor ou igual a candidates
+
+    retrieval->>vector: search com a pergunta e candidates
+    activate vector
+    vector-->>retrieval: até candidates hits densos
+    deactivate vector
+    Note over retrieval,vector: tempo dense_s, medido pelo RetrievalService.<br/>O caminho denso é sempre executado.
+
+    alt hibrida ligado, padrão
+        retrieval->>keyword: search com a pergunta e candidates
+        activate keyword
+        keyword-->>retrieval: até candidates hits por BM25
+        deactivate keyword
+        Note over retrieval,keyword: tempo keyword_s, medido pelo RetrievalService
+    else hibrida desligado
+        Note over retrieval,keyword: caminho BM25 pulado, keyword_s fica ausente
+    end
+
+    retrieval->>fusion: fuse com os rankings e rrf_k
+    activate fusion
+    fusion-->>retrieval: candidatos únicos, deduplicados e ordenados por RRF
+    deactivate fusion
+    Note over retrieval,fusion: tempo fusion_s, medido pelo RetrievalService
+
+    alt rerank ligado, padrão
+        retrieval->>reranker: rerank com pergunta, candidatos fundidos e k
+        activate reranker
+        reranker-->>retrieval: top k reordenado pelo cross encoder
+        deactivate reranker
+        Note over retrieval,reranker: tempo rerank_s, medido pelo RetrievalService
+    else rerank desligado
+        retrieval->>retrieval: corta os fundidos em k
+        Note over retrieval,reranker: rerank_s fica ausente, nunca zero
+    end
+
+    retrieval-->>facade: RetrievalResult com hits finais e os quatro tempos
+    deactivate retrieval
+
+    facade->>prompt: numera o contexto com fonte e página
+    activate prompt
+    prompt-->>facade: prompt com os trechos numerados
+    deactivate prompt
+    Note over facade,prompt: a numeração acontece depois do funil,<br/>e nada reordena a partir daqui
+
+    facade->>gen: gera a resposta
+    activate gen
+    gen-->>facade: texto com marcações de citação
+    deactivate gen
+    Note over facade,gen: tempo generation_s, medido pela QueryFacade
+
+    facade->>cita: resolve as citações por referência explícita
+    activate cita
+    cita-->>facade: citações com fonte, página e trecho
+    deactivate cita
+
+    facade-->>entry: Answer com texto, hits, citações e tempos
+    deactivate facade
+    Note over entry: search_s continua sendo o total do estágio de recuperação,<br/>decomposto por dense_s, keyword_s, fusion_s e rerank_s
+    entry-->>usuario: resposta apresentada, com procedência por trecho

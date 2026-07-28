@@ -1,0 +1,63 @@
+%% Matriz de erros como arvore de decisao (FDD secao 6)
+%% Nao ha fallback silencioso: estagio pedido que nao pode rodar e erro, nunca degradacao.
+flowchart TD
+    inicio(["Requisição POST /ask recebida"])
+
+    motorNoAr{"Elasticsearch responde?"}
+    erroMotor["503 ServiceUnavailableException<br/>receita: docker compose up -d elasticsearch<br/>distinto de índice vazio"]
+
+    cluster{"_cluster/health saudável?<br/>consultado em /_cluster/health, não na raiz"}
+    erroCluster["503 ServiceUnavailableException<br/>cluster respondendo mas degradado<br/>a raiz responde 200 mesmo em estado vermelho"]
+
+    indice{"Índice existe e tem documentos?"}
+    erroIndice["409 EmptyIndexException, código EMPTY_INDEX<br/>nasce em require_index, comportamento herdado"]
+
+    faixa{"candidates, rrf_k e k dentro da faixa?<br/>candidates 1 a 50, rrf_k 1 a 1000, k até 20"}
+    erroFaixa["422 InvalidParameterException<br/>nomeia parâmetro, valor e faixa<br/>validado no construtor do serviço dono"]
+
+    relacao{"k menor ou igual a candidates?"}
+    erroRelacao["422 InvalidParameterException<br/>contradição de configuração"]
+
+    mapping{"Campo de texto está mapeado como analisado?"}
+    mappingHibrida{"hibrida está ligado?"}
+    erroMapping["409 InvalidIndexMappingException, código INVALID_INDEX_MAPPING<br/>com receita de reindexação<br/>precisa entrar em error_handlers.py ANTES do tratador genérico"]
+    passaMapping["Segue normalmente<br/>a busca densa não depende do campo de texto analisado"]
+
+    rerankLigado{"rerank está ligado?"}
+    carregaCross{"Cross encoder carregou?"}
+    erroCross["503 ServiceUnavailableException<br/>NUNCA degradar em silêncio para sem rerank"]
+
+    sucesso["200 com a resposta produzida<br/>inclusive quando refused é true"]
+
+    inicio --> motorNoAr
+    motorNoAr -. "não" .-> erroMotor
+    motorNoAr -- "sim" --> cluster
+    cluster -. "degradado" .-> erroCluster
+    cluster -- "saudável" --> indice
+    indice -. "vazio ou inexistente" .-> erroIndice
+    indice -- "com documentos" --> faixa
+    faixa -. "fora de faixa" .-> erroFaixa
+    faixa -- "dentro da faixa" --> relacao
+    relacao -. "k maior que candidates" .-> erroRelacao
+    relacao -- "válido" --> mapping
+    mapping -. "não, campo keyword" .-> mappingHibrida
+    mapping -- "sim" --> rerankLigado
+    mappingHibrida -- "sim" --> erroMapping
+    mappingHibrida -- "não" --> passaMapping
+    passaMapping --> rerankLigado
+    rerankLigado -- "não" --> sucesso
+    rerankLigado -- "sim" --> carregaCross
+    carregaCross -. "falha ao preparar o modelo" .-> erroCross
+    carregaCross -- "carregado" --> sucesso
+
+    classDef erro503 fill:#ffe0e0,stroke:#cf222e,stroke-width:3px,color:#111
+    classDef erro409 fill:#fff3bf,stroke:#bf8700,stroke-width:3px,color:#111
+    classDef erro422 fill:#ffe8d1,stroke:#d1610a,stroke-width:3px,color:#111
+    classDef ok fill:#e6ffed,stroke:#1a7f37,stroke-width:3px,color:#111
+    classDef segue fill:#e8f4ff,stroke:#1f6feb,stroke-width:2px,color:#111
+
+    class erroMotor,erroCluster,erroCross erro503
+    class erroIndice,erroMapping erro409
+    class erroFaixa,erroRelacao erro422
+    class sucesso ok
+    class passaMapping segue

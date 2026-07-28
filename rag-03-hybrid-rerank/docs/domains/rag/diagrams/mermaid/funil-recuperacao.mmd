@@ -1,0 +1,51 @@
+%% Funil de recuperacao hibrido, dono: RetrievalService (FDD secao 4, fluxo principal)
+%% Linha cheia = caminho padrao (hibrida=true, rerank=true)
+%% Linha tracejada e no pontilhado = estagio condicional ou desvio
+flowchart TD
+    inicio(["Pergunta resolvida<br/>vinda do QueryRewriteService"])
+    valida{"RetrievalService valida faixas<br/>k, candidates e rrf_k<br/>e a relação k menor ou igual a candidates"}
+    erroFaixa["422 InvalidParameterException<br/>parâmetro, valor e faixa nomeados"]
+
+    densa["Busca densa: VectorRepository.search<br/>embeda a pergunta e busca os candidates vizinhos mais próximos<br/>sempre executada<br/>tempo dense_s"]
+
+    checaHibrida{"hibrida ligado?<br/>padrão: true"}
+    bm25["Busca léxica: KeywordRepository.search<br/>os candidates melhores por BM25 sobre o mesmo índice<br/>ESTÁGIO CONDICIONAL<br/>tempo keyword_s"]
+    semBm25["Caminho BM25 pulado<br/>a fusão recebe um ranking só<br/>keyword_s fica ausente, nunca zero"]
+
+    fusao["FusionService.fuse<br/>RRF: soma de 1 / (rrf_k + posição + 1) por aparição<br/>padrão rrf_k = 60<br/>tempo fusion_s"]
+    unicos["Candidatos únicos<br/>deduplicados por identidade do documento<br/>ordenados pelo valor da fusão"]
+
+    checaRerank{"rerank ligado?<br/>padrão: true"}
+    rerank["RerankService.rerank<br/>cross encoder local pontua cada par pergunta, candidato<br/>ESTÁGIO CONDICIONAL<br/>corta em k, tempo rerank_s"]
+    corteSimples["Corte simples dos fundidos em k<br/>rerank_s fica ausente, nunca zero"]
+
+    topk["Top k hits<br/>k padrão 4, máximo 20<br/>RetrievalResult com hits e os quatro tempos"]
+    numeracao["PromptBuilder numera o contexto<br/>nada reordena a partir daqui"]
+    llm["GenerationService gera a resposta<br/>e o CitationResolver resolve os colchetes"]
+
+    inicio --> valida
+    valida -. "fora de faixa" .-> erroFaixa
+    valida -- "válido" --> densa
+    densa --> checaHibrida
+    checaHibrida -- "sim, caminho padrão" --> bm25
+    checaHibrida -. "não" .-> semBm25
+    bm25 --> fusao
+    semBm25 -. "ranking único" .-> fusao
+    fusao --> unicos
+    unicos --> checaRerank
+    checaRerank -- "sim, caminho padrão" --> rerank
+    checaRerank -. "não" .-> corteSimples
+    rerank --> topk
+    corteSimples -. "fundidos cortados" .-> topk
+    topk --> numeracao
+    numeracao --> llm
+
+    classDef padrao fill:#e8f4ff,stroke:#1f6feb,stroke-width:2px,color:#111
+    classDef condicional fill:#fff7e6,stroke:#bf8700,stroke-width:2px,stroke-dasharray: 6 4,color:#111
+    classDef desvio fill:#f6f8fa,stroke:#8b949e,stroke-dasharray: 4 4,color:#111
+    classDef erro fill:#ffe9e9,stroke:#cf222e,stroke-width:2px,color:#111
+
+    class densa,fusao,unicos,topk,numeracao,llm padrao
+    class bm25,rerank condicional
+    class semBm25,corteSimples desvio
+    class erroFaixa erro

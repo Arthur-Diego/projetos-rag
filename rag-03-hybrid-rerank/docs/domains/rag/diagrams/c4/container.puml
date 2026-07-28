@@ -1,0 +1,76 @@
+@startuml container
+!pragma charset UTF-8
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Container.puml
+
+LAYOUT_TOP_DOWN()
+
+title C2 • Containers - Funil de recuperação híbrido (rag-03-hybrid-rerank)
+
+Person(estudante, "Estudante", "Único usuário")
+
+System_Boundary(sistema, "rag-03-hybrid-rerank") {
+  Container(ingest, "ingest.py", "Python 3.12.3", "Entrypoint de indexação. Lê pdfs/*.pdf, glob NÃO recursivo: pdfs/fora-do-corpus/ fica de fora de propósito.")
+  Container(ask, "ask.py", "Python 3.12.3", "Turno único, sem REPL. É ele que mantém a medição scriptável.")
+  Container(chat, "chat.py", "Python 3.12.3", "REPL, com os argumentos novos do funil. Guarda a transcrição no cliente e mostra por que cada trecho subiu.")
+  Container(serve, "serve.py", "FastAPI 0.140.9 e uvicorn 0.51.0", "API HTTP em 127.0.0.1. Implementa o contrato compartilhado 1.2.0, aditivo puro.")
+  Container(pacote, "rag/", "Pacote Python 3.12.3 em camadas", "facade, service, repository, presenter, domain, api. O funil inteiro vive aqui, e o cross encoder roda DENTRO deste processo.")
+  Container(harness, "docs/operations/", "Python 3.12.3", "Harness de medição. As 10 perguntas e as páginas esperadas vivem em arquivo de dados, não no script.")
+  ContainerDb(corpus, "pdfs/", "Sistema de arquivos", "Corpus indexado. pdfs/fora-do-corpus/ é o corpus de controle, jamais alcançado pelo glob.")
+}
+
+Container_Ext(frontend, "frontend/", "React e Vite", "Cliente genérico do contrato, compartilhado pelo workspace. Descobre os controles novos por GET /capabilities e trata campo ausente como não exibir.")
+
+ContainerDb_Ext(elasticsearch, "Elasticsearch", "Container Docker, tag fixada no compose, volume", "Índice único, um documento por trecho: campo dense_vector para o kNN e campo de texto analisado em português para o BM25, no MESMO documento.")
+
+System_Ext(openai, "API da OpenAI", "Embeddings, reescrita e geração")
+
+Rel(estudante, ingest, "Indexa uma vez", "shell")
+Rel(estudante, ask, "Pergunta e sai", "shell")
+Rel(estudante, chat, "Conversa", "shell")
+Rel(estudante, frontend, "Compara as configurações pela interface", "navegador")
+
+Rel(frontend, serve, "POST /ask com as opções do funil em options", "HTTP/JSON")
+Rel(serve, frontend, "Answer com hits[].provenance e timings por estágio", "HTTP/JSON")
+
+Rel(ingest, pacote, "IngestionFacade")
+Rel(ask, pacote, "QueryFacade")
+Rel(chat, pacote, "QueryFacade, passando a Conversation")
+Rel(serve, pacote, "rag.api sobre as mesmas facades")
+Rel(harness, pacote, "Roda as três configurações e o diagnóstico só léxico")
+
+Rel(ingest, corpus, "Lê", "pypdf")
+Rel(pacote, elasticsearch, "Cria o índice com mapping explícito e grava um documento por trecho", "HTTP :9200")
+Rel(pacote, elasticsearch, "Busca os candidates vizinhos por kNN sobre dense_vector", "HTTP :9200")
+Rel(pacote, elasticsearch, "Busca os candidates melhores por BM25 sobre o campo de texto analisado", "HTTP :9200")
+Rel(pacote, elasticsearch, "Confere estado do cluster e mapping do campo de texto", "HTTP :9200, /_cluster/health")
+Rel(pacote, openai, "Embeddings, reescrita e resposta", "HTTPS")
+
+note as ADR001
+  **ADR-001: um motor, um índice, um documento.**
+  Os dois caminhos de busca são duas consultas ao
+  MESMO índice, e não dois armazéns a sincronizar.
+  Daí a ingestão continuar sendo uma passada só e o
+  identificador do documento servir de chave natural
+  de deduplicação da fusão.
+
+  • Mapping explícito no código, nunca inferido
+  • Healthcheck obrigatório: cerca de 30 s até aceitar conexão
+  • rank-bm25 não entra: um motor de busca por projeto
+end note
+
+note as ADR004
+  **ADR-004: o cross encoder NÃO é container.**
+  Ele roda em processo, dentro de rag/, carregado uma
+  vez por processo pelo sentence-transformers. Não há
+  serviço a subir, porta a abrir nem chamada a pagar.
+
+  • Provedor com escopo de processo, nunca de requisição
+  • Escopo de requisição carregaria 500 MB por /ask
+  • Protocol deixa a via hospedada entrar depois
+end note
+
+ADR001 .. elasticsearch
+ADR004 .. pacote
+
+SHOW_LEGEND()
+@enduml

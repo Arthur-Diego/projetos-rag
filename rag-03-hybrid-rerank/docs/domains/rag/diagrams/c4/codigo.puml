@@ -1,0 +1,172 @@
+@startuml codigo
+!pragma charset UTF-8
+set separator none
+skinparam packageStyle rectangle
+skinparam nodesep 20
+skinparam ranksep 40
+
+title C4 • Código - Funil de recuperação híbrido (rag-03-hybrid-rerank)
+
+package "facade/" {
+  class QueryFacade {
+    ask(...) : Answer
+  }
+}
+
+package "service/" {
+  class RetrievalService {
+    retrieve(query: str) : RetrievalResult
+  }
+
+  class FusionService {
+    fuse(rankings, rrf_k: int) : list[SearchHit]
+  }
+
+  interface RerankService <<Protocol>> {
+    rerank(question: str, hits, top_n: int) : list[SearchHit]
+  }
+}
+
+package "repository/" {
+  interface VectorRepository <<Protocol>> {
+    search(query: str, k: int) : list[SearchHit]
+    recreate()
+    add()
+  }
+
+  interface KeywordRepository <<Protocol>> {
+    search(query: str, k: int) : list[SearchHit]
+  }
+}
+
+package "domain/models.py" {
+  class SearchHit <<struct>> {
+    source: str
+    page: int
+    excerpt: str
+    distance: float | None
+    score: float | None
+    provenance: Provenance | None
+  }
+
+  class Provenance <<struct>> {
+    paths: list[str]
+    dense_rank: int | None
+    keyword_rank: int | None
+    rrf_score: float | None
+    rerank_score: float | None
+  }
+
+  class RetrievalResult <<struct>> {
+    hits: list[SearchHit]
+    dense_s: float | None
+    keyword_s: float | None
+    fusion_s: float | None
+    rerank_s: float | None
+  }
+
+  class Answer <<struct>> {
+    text: str
+    refused: bool
+    hits: list[SearchHit]
+    citations: list[Citation]
+    timings
+  }
+}
+
+package "exceptions.py" {
+  class InvalidIndexMappingException <<exception>> {
+    409, INVALID_INDEX_MAPPING
+  }
+  class EmptyIndexException <<exception>> {
+    409, EMPTY_INDEX
+  }
+  class InvalidParameterException <<exception>> {
+    422
+  }
+  class ServiceUnavailableException <<exception>> {
+    503
+  }
+}
+
+QueryFacade --> RetrievalService : retrieve(resolvida)
+QueryFacade ..> Answer : devolve
+
+RetrievalService --> VectorRepository : search(candidates)
+RetrievalService --> KeywordRepository : search(candidates)
+RetrievalService --> FusionService : fuse(rankings, rrf_k)
+RetrievalService --> RerankService : rerank(pergunta, fundidos, k)
+RetrievalService ..> RetrievalResult : devolve
+RetrievalService ..> InvalidParameterException : levanta
+
+VectorRepository ..> SearchHit : devolve
+KeywordRepository ..> SearchHit : devolve
+RetrievalResult o-- SearchHit
+SearchHit *-- Provenance
+Answer o-- SearchHit
+
+VectorRepository -[hidden]down- ServiceUnavailableException
+KeywordRepository -[hidden]down- InvalidParameterException
+FusionService -[hidden]down- SearchHit
+
+note as NFUSAO
+  Fusão
+  • Soma 1 / (rrf_k + posição + 1)
+  • Deduplica por identidade do documento
+  • Posição manda; escala não altera
+  • Sem dependência: testável sem dublê
+end note
+
+note as NFUNIL
+  Validações e execução
+  • candidates de 1 a 50, rrf_k de 1 a 1000
+  • k maior que candidates é 422
+  • O caminho denso sempre roda
+  • Caminho vazio não impede o outro
+end note
+
+note as NTEMPO
+  Custo atribuível
+  • Um tempo por estágio, medido por quem executou
+  • Estágio não executado fica ausente, nunca zero
+  • search_s continua sendo o total
+end note
+
+note as NESCALA
+  Escalas opostas, campos separados
+  • score é o valor final: maior é melhor
+  • Vem do rerank, ou da fusão sem ele
+  • distance mantido e depreciado
+  • Válido só sem híbrida e sem rerank
+end note
+
+note as NRERANK
+  Reordenação
+  • Local, em sentence-transformers, na CPU
+  • Carregado uma vez por processo
+  • Falha ao carregar é 503, nunca "sem rerank"
+  • Protocol abre a segunda implementação
+end note
+
+note as NFRONTEIRA
+  Fronteira
+  • Dois adaptadores, um índice, um documento
+  • Vocabulário do Elasticsearch não atravessa
+  • O Protocol expõe o mapping ao HealthChecker
+end note
+
+note as NERRO
+  Ordem importa
+  • Antes do tratador genérico, senão vira 500
+  • Só falha com híbrida ligada
+end note
+
+NFUSAO .. FusionService
+NFUNIL .. RetrievalService
+NTEMPO .. RetrievalResult
+NESCALA .. SearchHit
+NRERANK .. RerankService
+NFRONTEIRA .. KeywordRepository
+NERRO .. InvalidIndexMappingException
+
+@enduml
