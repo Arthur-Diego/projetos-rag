@@ -103,10 +103,17 @@ pergunta + histórico → QueryRewriteService → RetrievalService → PromptBui
                                   RerankService (cross encoder, top 4)
 ```
 
-A `QueryFacade` não muda uma linha. Isso não é detalhe estético: é o teste de que a
-estrutura em camadas herdada do Projeto 1 aguentou uma troca de mecanismo de recuperação
-sem vazar para cima. Se a facade precisar mudar, alguma responsabilidade foi parar no
-lugar errado.
+**Correção da versão 1.0.0 deste documento.** A primeira versão afirmava que a
+`QueryFacade` não mudaria uma linha. O reconhecimento do código do Projeto 2 mostrou que
+isso é incompatível com a medição por estágio exigida pelo ADR-005: a facade cronometra
+ela mesma o estágio de busca, e `retrieve()` devolve uma lista sem canal para tempo. Ver
+[[ADR-007-retrieval-devolve-resultado-com-metrica]].
+
+O que vale é a afirmação mais estreita: **a `QueryFacade` não muda em orquestração.** Ela
+continua chamando os mesmos estágios, na mesma ordem, sem saber que a recuperação virou
+funil. O que muda nela é transporte de métrica: ela deixa de cronometrar um estágio que o
+serviço passou a medir por dentro. Isso continua sendo evidência de que as camadas
+aguentaram, e é uma evidência honesta em vez de uma que se escreveu antes de ler o código.
 
 **O índice é único.** Um documento por chunk no Elasticsearch, carregando o campo
 `embedding` (`dense_vector`, para o kNN) e o campo de texto analisado (para o BM25) no
@@ -170,7 +177,7 @@ listados apenas quando mudam ou quando o funil depende deles.
 | Componente | Responsabilidades | Dependências |
 | --- | --- | --- |
 | `IngestionFacade` | Caso de uso de indexação. Inalterado em forma; muda apenas o repositório que recebe os chunks. | `DocumentReader`, `ChunkingService`, `VectorRepository` |
-| `QueryFacade` | Caso de uso de consulta. **Inalterada.** Continua orquestrando reescrita, recuperação, montagem de contexto numerado, geração e resolução de citação. Não sabe que a recuperação virou funil. | `QueryRewriteService`, `RetrievalService`, `PromptBuilder`, `GenerationService`, `CitationResolver` |
+| `QueryFacade` | Caso de uso de consulta. **Inalterada em orquestração**, alterada em transporte de métrica (ADR-007): continua chamando os mesmos estágios na mesma ordem, sem saber que a recuperação virou funil, mas deixa de cronometrar a busca e passa a repassar os tempos que o `RetrievalService` mediu por dentro. | `QueryRewriteService`, `RetrievalService`, `PromptBuilder`, `GenerationService`, `CitationResolver` |
 | `RetrievalService` | Política de recuperação, agora do funil inteiro: dono de `candidates`, `rrf_k` e `top_n`, da validação de faixa e do `require_index()` que origina o 409. Dispara os dois caminhos, entrega os rankings à fusão, passa os candidatos ao rerank e devolve os finais. Não implementa fusão nem pontuação. | `VectorRepository`, **`KeywordRepository`**, **`FusionService`**, **`RerankService`** |
 | `VectorRepository` | Busca kNN densa sobre o índice. `Protocol` com adaptador Elasticsearch. Nada do vocabulário do Elasticsearch atravessa a fronteira. | Elasticsearch |
 | **`KeywordRepository`** | Busca BM25 sobre o **mesmo** índice e o mesmo documento. `Protocol` com adaptador Elasticsearch. Nominalmente previsto na seção 5 da guideline do workspace. | Elasticsearch |
@@ -412,14 +419,35 @@ Dashboards e alertas
 #### Latência do cross encoder na CPU
 
 - **Probabilidade:** alta
-- **Impacto:** médio. Pontuar 20 pares (pergunta, documento) numa CPU acrescenta latência
-  perceptível a cada turno, e 50 pares acrescentam mais que o dobro por causa da carga.
+- **Impacto:** **alto, e maior do que a versão 1.0.0 deste documento estimava.** Aquela
+  versão dizia "centenas de ms", por estimativa e não por dado. O BEIR (Thakur et al.,
+  2021, Tabela 3) mede 6,1 segundos para rerankear o top-100 em CPU, contra 450 ms em GPU.
+  Extrapolando linearmente para 20 a 50 candidatos: **1,2 s a 3,0 s por turno.** É
+  extrapolação sobre hardware de 2021 não especificado, portanto ordem de grandeza e não
+  medição, mas a ordem de grandeza é segundos. Isso muda a sensação de uso dos três
+  entrypoints interativos.
 - **Mitigação:**
   - `candidates` exposto como parâmetro e medido em `rerank_s`, de modo que o custo seja
     visível e atribuível em vez de sentido.
-  - Modelo carregado uma vez por processo, nunca por consulta.
+  - Modelo carregado uma vez por processo, nunca por consulta. Atenção: o
+    `provide_repository` do Projeto 2 é reconstruído a cada requisição HTTP, então o
+    provedor do reranker precisa de escopo de processo, ou o modelo carrega por `/ask`.
+  - Decisão de produto tomada no PRD da feature (ADR-001 da feature): o estágio fica
+    **ligado por padrão em todos os caminhos**, e a latência vira dado publicado. Esconder
+    o custo derrotaria o exercício 3.
 - **Plano de contingência:** reduzir `candidates`, ou trocar a implementação do
   `RerankService` pela da Cohere, que é o motivo de ele ser `Protocol`.
+
+#### O reranking piorar o resultado neste corpus
+
+- **Probabilidade:** baixa a média, e é risco que a versão 1.0.0 não registrava
+- **Impacto:** médio. No BEIR o ganho médio do rerank é de cerca de +11% em nDCG@10, mas a
+  variância por conjunto de dados vai de **−26% (Touché-2020) a +47% (FiQA)**. Existe
+  corpus em que o cross encoder degrada o resultado do BM25.
+- **Mitigação:** as três configurações da tabela já isolam o efeito do rerank. Se ele
+  piorar, a tabela mostra, e isso é resultado válido do projeto e não falha dele.
+- **Plano de contingência:** reportar o resultado como está. Um estágio que piora num
+  corpus específico é conhecimento, não defeito a esconder.
 
 #### Vocabulário do Elasticsearch vazando pelas fronteiras
 
@@ -471,6 +499,9 @@ ADRs associados (a escrever no Passo 4 do `dd-greenfield`, todos decididos nesta
   depreciado em vez de removido.
 - ADR-006, buscas densa e BM25 executadas em sequência, com paralelismo registrado como
   decisão pendente.
+- ADR-007, `RetrievalService` devolve resultado com métrica e a facade deixa de cronometrar.
+  **Corrige uma afirmação errada da versão 1.0.0 deste documento**, escrita a partir do
+  desenho antes de o código do Projeto 2 ser lido.
 
 Os ADRs do `rag-01-fundamentos-pdf` e do `rag-02-conversacional-citacoes` são **precedente
 conceitual, não vínculo**: valem para aqueles diretórios. Decisão herdada precisa de ADR

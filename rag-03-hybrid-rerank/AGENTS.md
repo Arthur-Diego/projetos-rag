@@ -45,6 +45,7 @@ Todo o contexto deste projeto vive em `docs/`. Não há contexto em `contexts/`,
 | 004 | Cross-encoder local atrás de `Protocol`, com Cohere prevista como segunda implementação |
 | 005 | Contrato compartilhado evoluído para 1.2.0, aditivo, com `distance` depreciado |
 | 006 | Buscas densa e BM25 em sequência, com paralelismo como decisão pendente |
+| 007 | `RetrievalService` devolve resultado com métrica; a facade deixa de cronometrar |
 
 Os ADRs do `rag-01-fundamentos-pdf` e do `rag-02-conversacional-citacoes` são **precedente
 conceitual, não vínculo**: valem para aqueles diretórios. Decisão herdada precisa de ADR
@@ -58,9 +59,18 @@ próprio aqui.
   português.**
 - O grafo é estritamente descendente: entrypoint → facade → service → repository → domain.
   Nenhuma camada chama `sys.exit()` nem escreve em stdout.
-- **A `QueryFacade` não muda em relação ao Projeto 2.** Toda a mudança deste projeto vive
-  dentro do estágio de recuperação. Se a facade precisar mudar, alguma responsabilidade foi
-  parar no lugar errado.
+- **A `QueryFacade` não muda em ORQUESTRAÇÃO** (ADR-007). Ela continua chamando os mesmos
+  estágios na mesma ordem e não sabe que a recuperação virou funil. O que muda nela é
+  transporte de métrica: deixa de cronometrar a busca, porque o `RetrievalService` passou a
+  medir por dentro. Se a facade ganhar responsabilidade nova de orquestração, aí sim alguma
+  coisa foi parar no lugar errado.
+- **O cross-encoder custa segundos, não centésimos** (ADR-001 da feature). BEIR mede 6,1 s
+  para top-100 em CPU; extrapolado, 1,2 a 3,0 s para 20–50 candidatos. Ele fica **ligado por
+  padrão em todos os caminhos** e a latência vira coluna da tabela. Cuidado: o provedor do
+  reranker precisa de escopo de processo, senão o modelo carrega a cada `/ask`.
+- **Reranking pode PIORAR o resultado em alguns corpora.** No BEIR a variância vai de −26%
+  a +47%. As três configurações da tabela existem para isolar isso; se piorar, é resultado
+  válido do projeto, não defeito a esconder.
 - **O `RetrievalService` orquestra e não calcula** (ADR-003). Ele é dono de `candidates`,
   `rrf_k` e `top_n`, dispara os dois repositórios, entrega os rankings à fusão e passa o
   resultado ao rerank. A matemática do RRF mora no `FusionService`.
