@@ -1,0 +1,54 @@
+---
+title: Decisão do QueryRewriteService (os seis valores fechados de reason)
+---
+flowchart TD
+    START(["QueryRewriteService.decide(question, conversation)"]) --> C1{"conversa<br/>vazia?"}
+
+    C1 -->|sim| R_PRIMEIRO["<b>primeiro_turno</b><br/>used = question<br/>rewritten = false<br/>rewrite_s = 0.0"]
+
+    C1 -->|não| C2{"conditional_rewrite<br/>ligado?"}
+
+    C2 -->|"não (padrão)"| G_HIST["gatilho: há histórico<br/>candidato: <b>historico_presente</b>"]
+
+    C2 -->|sim| H1{"pergunta com menos<br/>de 8 palavras?"}
+    H1 -->|sim| G_CURTA["gatilho: pergunta curta<br/>candidato: <b>pergunta_curta</b>"]
+    H1 -->|não| H2{"contém marcador anafórico<br/>ou começa com conjunção?<br/><i>isso, esse, nesse caso, e se, dele...</i>"}
+    H2 -->|sim| G_ANAF["gatilho: marcador encontrado<br/>candidato: <b>marcador_anaforico</b>"]
+    H2 -->|não| R_AUTO["<b>pergunta_autossuficiente</b><br/>used = question<br/>rewritten = false<br/>rewrite_s = 0.0"]
+
+    G_HIST --> LLM
+    G_CURTA --> LLM
+    G_ANAF --> LLM
+
+    LLM["<b>chamada de LLM de reescrita</b><br/>gpt-4o-mini sobre a conversa truncada<br/>resolve referências, não completa lacunas"] --> C3{"a chamada<br/>respondeu?"}
+
+    C3 -->|sim| R_REESC["used = pergunta reescrita<br/>rewritten = true<br/>reason = o candidato do gatilho<br/>rewrite_s > 0.0"]
+    C3 -->|"não (timeout ou erro)"| R_FALHOU["<b>reescrita_falhou</b><br/>cai para a pergunta original<br/>rewritten = false<br/>log WARNING, requisição segue em 200<br/>rewrite_s > 0.0"]
+
+    R_PRIMEIRO --> OUT
+    R_AUTO --> OUT
+    R_REESC --> OUT
+    R_FALHOU --> OUT
+
+    OUT["RewriteDecision devolvida à QueryFacade<br/>rewritten_question aparece em toda resposta,<br/>mesmo quando igual à original"] --> BUSCA(["RetrievalService.search(decision.used, k)"])
+
+    subgraph LEG["Legenda"]
+        direction LR
+        L1["sem chamada de LLM<br/>rewrite_s = 0.0"]
+        L2["com chamada de LLM<br/>rewrite_s > 0.0"]
+        L3["tentou e falhou<br/>fallback para a original"]
+    end
+
+    %% invariante 3 da seção 6: rewrite_s == 0.0 se e somente se
+    %% reason for primeiro_turno ou pergunta_autossuficiente
+
+    classDef semllm fill:#1a4a2e,stroke:#4ad98a,color:#fff
+    classDef comllm fill:#3a2a4a,stroke:#a97ad9,color:#fff
+    classDef falha fill:#4a1a1a,stroke:#d94a4a,color:#fff
+    classDef decisao fill:#1a3a52,stroke:#4a90d9,color:#fff
+    classDef saida fill:#4a3a1a,stroke:#d9a94a,color:#fff
+    class R_PRIMEIRO,R_AUTO,L1 semllm
+    class LLM,G_HIST,G_CURTA,G_ANAF,R_REESC,L2 comllm
+    class R_FALHOU,L3 falha
+    class C1,C2,C3,H1,H2 decisao
+    class OUT,BUSCA saida

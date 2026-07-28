@@ -1,0 +1,83 @@
+@startuml componente
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Component.puml
+
+title C4 nivel 3 - Componentes do pacote rag/ - rag-02-conversacional-citacoes
+
+Container_Boundary(pacote, "rag/") {
+
+  Component(api, "rag/api/", "FastAPI", "app, routes/, schemas, dependencies, descriptor, error_handlers. Traduz HTTP em chamada de facade e excecao de dominio em status. read_history levanta 422 em turno malformado, nunca descarta em silencio.")
+
+  Component(queryFacade, "QueryFacade", "facade", "Caso de uso da consulta. Aplica a janela, orquestra reescrita, busca, prompt, geracao e resolucao de citacao. Calcula refused. Recebe a Conversation por parametro e nao a guarda.")
+  Component(ingestionFacade, "IngestionFacade", "facade", "Caso de uso da indexacao: ler, dividir, recriar, gravar. Expoe files() separado de ingest(), para o corpus de controle indexado por engano aparecer ANTES do trabalho.")
+
+  Component(rewrite, "QueryRewriteService", "service", "**Componente novo do Projeto 2.** Decide se reescreve (heuristica lexica) e reescreve. Nunca levanta: falha vira reason=reescrita_falhou e cai para a pergunta original.")
+  Component(retrieval, "RetrievalService", "service", "Politica de recuperacao. Dono do k e do require_index() que origina o 409. Busca pela query JA RESOLVIDA, nunca pela original.")
+  Component(prompts, "PromptBuilder", "service", "Numera os trechos de 1 a k com fonte e pagina, injeta a ESCAPE_PHRASE literal e a conversa truncada. A numeracao feita aqui e a mesma que o CitationResolver usa.")
+  Component(citations, "CitationResolver", "service", "**Componente novo do Projeto 2.** Extrai os [n] e os liga aos trechos. Rotulo inexistente e sinalizado, nunca engolido.")
+  Component(generation, "GenerationService", "service (Protocol)", "Fronteira com o LLM. UM adaptador, DOIS chamadores: reescrita e resposta. E a origem do custo dobrado por turno.")
+  Component(chunking, "ChunkingService", "service (Protocol)", "Divisao recursiva preservando source e page.")
+  Component(health, "HealthChecker", "service", "check() distingue servico fora do ar de indice vazio. check_dimensions() compara o modelo de embedding com a colecao existente.")
+
+  Component(vectorRepo, "VectorRepository", "repository (Protocol)", "QdrantVectorRepository e ChromaVectorRepository. Nada do vocabulario do armazem sobe: payload, point_id e ScoredPoint ficam dentro. Converte similaridade em distancia e normaliza a pagina para 1-based.")
+  Component(docReader, "DocumentReader", "repository (Protocol)", "PdfDocumentReader. Glob pdfs/*.pdf, NAO recursivo.")
+
+  Component(console, "ConsoleReporter", "presenter", "Unico componente que escreve no terminal. stdout carrega o resultado, stderr o diagnostico.")
+  Component(json, "JsonPresenter", "presenter", "Serializa no contrato 1.1.0. OMITE campos opcionais vazios, nunca emite null.")
+
+  Component(dominio, "domain/models.py", "dominio", "Turn, Conversation, Page, Chunk, SearchHit, Citation, RewriteDecision, Answer, IngestionReport. Folha: nao importa nada do projeto nem do LangChain.")
+  Component(config, "config.py + exceptions.py", "base", "RagProperties imutavel, defaults dos parametros de requisicao, hierarquia RagException.")
+}
+
+Rel(api, queryFacade, "monta na rota e chama")
+Rel(api, ingestionFacade, "monta na rota e chama")
+Rel(api, json, "serializa")
+
+Rel(queryFacade, rewrite, "decide()")
+Rel(queryFacade, retrieval, "retrieve(decision.used)")
+Rel(queryFacade, prompts, "build()")
+Rel(queryFacade, generation, "generate()")
+Rel(queryFacade, citations, "resolve()")
+
+Rel(ingestionFacade, docReader, "read()")
+Rel(ingestionFacade, chunking, "split()")
+Rel(ingestionFacade, vectorRepo, "recreate() e add()")
+
+Rel(rewrite, generation, "generate() do prompt de reescrita")
+Rel(retrieval, vectorRepo, "search()")
+Rel(health, vectorRepo, "vector_size()")
+
+Rel(console, dominio, "le")
+Rel(json, dominio, "le")
+Rel(queryFacade, dominio, "devolve Answer")
+Rel(vectorRepo, dominio, "devolve SearchHit")
+
+note as ADR003
+  **ADR-003: nao existe ConversationMemory.**
+  A secao 5 da guideline do workspace previa um
+  servico de memoria em service/. Com o backend
+  sem estado ele nao teria o que guardar: a
+  conversa e um valor que entra pela assinatura
+  do caso de uso, e a janela e um metodo puro de
+  Conversation.
+
+  Um servico aqui seria a delegacao decorativa
+  que a secao 4 da propria guideline manda evitar.
+end note
+
+note as ADR004
+  **ADR-004: [n] nunca resolve por posicao.**
+  PromptBuilder numera e CitationResolver resolve
+  contra A MESMA lista, materializada em Citation
+  antes de qualquer apresentacao.
+
+  hits e construido uma vez e nunca reordenado
+  entre numerar e resolver (invariante 5 do FDD).
+  Ha teste que reordena depois e verifica que as
+  citacoes nao se mexem.
+end note
+
+ADR003 .. dominio
+ADR004 .. citations
+
+SHOW_LEGEND()
+@enduml

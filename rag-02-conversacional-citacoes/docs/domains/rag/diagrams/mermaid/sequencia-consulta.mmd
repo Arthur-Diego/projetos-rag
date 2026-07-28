@@ -1,0 +1,108 @@
+---
+title: Sequência da consulta com histórico (POST /ask e chat.py)
+---
+sequenceDiagram
+    autonumber
+    actor U as Cliente<br/>(chat.py ou frontend)
+    participant EDGE as Borda<br/>(rag.api ou composition root)
+    participant FAC as QueryFacade
+    participant RW as QueryRewriteService
+    participant RET as RetrievalService
+    participant VEC as VectorRepository
+    participant PB as PromptBuilder
+    participant GEN as GenerationService
+    participant CR as CitationResolver
+    participant PRES as Presenter<br/>(JsonPresenter ou ConsoleReporter)
+    participant QD as Qdrant<br/>(Docker :6333)
+    participant AI as API OpenAI
+
+    rect rgba(90, 120, 170, 0.13)
+    note over U,EDGE: PASSOS 1 e 2 - a transcrição é do cliente e viaja na requisição
+    U->>EDGE: question + options.history + k + history_window + conditional_rewrite
+    note right of U: chat.py guarda a transcrição no processo,<br/>o frontend guarda no navegador.<br/>ask.py não tem transcrição (ADR-006).
+    EDGE->>EDGE: valida k, history_window e cada turno
+    alt turno sem question ou sem answer
+        EDGE-->>U: 422 InvalidParameterException<br/>(nunca descarte silencioso)
+    else corpo válido
+        EDGE->>EDGE: constrói Conversation a partir dos turnos
+    end
+    end
+
+    rect rgba(60, 150, 120, 0.13)
+    note over EDGE,AI: PASSOS 3, 4 e 5 - janela de histórico e decisão de reescrita
+    EDGE->>FAC: ask(question, conversation, k)
+    note right of EDGE: a facade não conhece HTTP nem terminal
+    FAC->>FAC: conversation.last(history_window)
+    FAC->>RW: decide(question, conversation)
+    alt conversa vazia
+        RW-->>FAC: used = question, rewritten = false,<br/>reason = primeiro_turno (sem chamada de LLM)
+    else conditional_rewrite ligado e nenhum gatilho léxico
+        RW-->>FAC: used = question, rewritten = false,<br/>reason = pergunta_autossuficiente (sem chamada de LLM)
+    else reescrita necessária
+        RW->>AI: prompt de reescrita (resolve referências, não completa lacunas)
+        alt a reescrita respondeu
+            AI-->>RW: pergunta autossuficiente
+            RW-->>FAC: used = pergunta reescrita, rewritten = true, reason =<br/>historico_presente, pergunta_curta ou marcador_anaforico
+        else timeout ou erro da OpenAI
+            AI--xRW: falha
+            RW-->>FAC: used = pergunta original, rewritten = false,<br/>reason = reescrita_falhou (log WARNING, requisição segue em 200)
+        end
+    end
+    note over FAC: timings.rewrite_s vale 0.0 se e somente se reason for<br/>primeiro_turno ou pergunta_autossuficiente (invariante 3)
+    end
+
+    rect rgba(200, 140, 50, 0.13)
+    note over FAC,QD: PASSO 6 - a query buscada é a query resolvida, nunca a original
+    FAC->>RET: retrieve(decision.used)
+    RET->>VEC: require_index()
+    VEC->>QD: contagem da coleção
+    QD-->>VEC: n chunks
+    alt coleção inexistente ou vazia
+        RET-->>EDGE: EmptyIndexException - 409, antes de qualquer chamada paga
+    else índice pronto
+        RET->>VEC: search(query, k)
+        VEC->>AI: embed(query)
+        AI-->>VEC: vetor de 1536 dimensões
+        VEC->>QD: busca por similaridade
+        QD-->>VEC: k pares de trecho e distância
+        VEC-->>RET: lista de SearchHit normalizada<br/>(text, source, page 1-based, distance)
+        RET-->>FAC: hits
+    end
+    note over FAC,QD: hits é construído UMA vez e nunca é reordenado,<br/>deduplicado ou filtrado depois disso (invariante 5).<br/>A busca sempre devolve k trechos, mesmo que nenhum sirva.
+    end
+
+    rect rgba(190, 90, 80, 0.13)
+    note over FAC,AI: PASSOS 7, 8 e 9 - numeração, geração e cálculo da recusa
+    FAC->>PB: build(decision, hits, windowed)
+    PB->>PB: numera os trechos de 1 a k e cola fonte e página
+    PB-->>FAC: prompt com contexto numerado, conversa truncada<br/>e a frase de escape sem aspas
+    FAC->>GEN: generate(prompt)
+    GEN->>AI: chat completion (temperatura 0)
+    AI-->>GEN: texto com rótulos numéricos OU a frase de escape
+    GEN-->>FAC: text
+    FAC->>FAC: refused = (texto normalizado == ESCAPE_PHRASE)
+    note right of FAC: refused é campo de domínio calculado na facade,<br/>não cálculo do presenter
+    end
+
+    rect rgba(150, 100, 180, 0.13)
+    note over FAC,CR: PASSO 10 - resolução contra a MESMA lista numerada no passo 7
+    alt refused == true
+        FAC->>FAC: citations = lista vazia, sem parsear o texto
+        note right of FAC: invariante 1 - recusa não cita
+    else refused == false
+        FAC->>CR: resolve(text, hits)
+        CR->>CR: extrai os rótulos, deduplica preservando a ordem<br/>e resolve cada um contra hits do passo 6
+        CR-->>FAC: citations resolvidas + unresolved_labels
+        note right of CR: rótulo fora de 1..k não vira Citation:<br/>vai para meta.unresolved_labels e log WARNING,<br/>e a resposta continua 200 (invariante 4)
+    end
+    end
+
+    rect rgba(90, 120, 170, 0.13)
+    note over U,PRES: PASSO 11 - a facade devolve DADO e o ciclo fecha no cliente
+    FAC-->>EDGE: Answer(text, refused, rewritten_question,<br/>citations, hits, timings)
+    EDGE->>PRES: serializa o Answer
+    note right of PRES: omite campo que não se aplica, nunca emite null
+    PRES-->>U: 200 conforme o contrato 1.1.0<br/>(recusa também é 200)
+    U->>U: acrescenta Turn(question, answer) à própria transcrição
+    note over EDGE,QD: O SERVIDOR NÃO GUARDA NADA (ADR-002): sem conversation_id,<br/>sem dicionário de sessão, sem cache de conversa.<br/>A transcrição chega em options.history e vai embora com a resposta.<br/>Só o cliente acrescenta o turno.
+    end

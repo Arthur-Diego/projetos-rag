@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Contrato RAG compartilhado
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Contrato HTTP comum aos projetos da trilha. Um frontend que fale este contrato
     conversa com qualquer projeto sem conhecer nenhum deles.
@@ -15,6 +15,31 @@ info:
     Regra de evolução: **acrescente campos opcionais, nunca altere os obrigatórios.**
     Um projeto que precise mudar `POST /ask` está pedindo uma versão nova do contrato,
     não uma customização.
+
+    ## 1.1.0 — conversa e procedência
+
+    Três campos opcionais, nenhum obrigatório alterado. O `rag-01-fundamentos-pdf`
+    continua conforme sem tocar em uma linha: ele simplesmente não os emite.
+
+    - `options.history` em `POST /ask`: a transcrição dos turnos anteriores. O backend
+      não guarda conversa; **o cliente é dono dela** e a devolve a cada chamada. É o que
+      a feature `history` significa.
+    - `citations` no `Answer`: liga cada rótulo `[n]` do texto ao trecho que o sustenta.
+      A ligação é explícita, **nunca posicional sobre `hits`** — dedup ou reordenação de
+      `hits` faria `[3]` apontar para o trecho errado sem erro nenhum, que é uma citação
+      que parece verificada e não está.
+    - `rewritten_question` no `Answer`: a pergunta efetivamente buscada, depois de
+      resolvida contra o histórico, e a decisão que a produziu.
+
+    **Opcional aqui não significa opcional lá.** Os três campos ficam fora de
+    `required` porque torná-los obrigatórios quebraria o `rag-01`, que não os emite.
+    Um projeto pode garantir mais do que este contrato exige: o
+    `rag-02-conversacional-citacoes` promete `rewritten_question` e
+    `timings.rewrite_s` em 100 por cento das respostas de `/ask`. Um cliente genérico
+    deve tratá-los como opcionais; um cliente que fale com um backend específico pode
+    contar com o que aquele backend prometeu.
+
+    Origem: `rag-02-conversacional-citacoes/docs/adrs/generated/RAG/ADR-005`.
 
 servers:
   - url: http://localhost:8080
@@ -116,9 +141,29 @@ paths:
                     O backend **ignora chaves desconhecidas** em vez de falhar: é isso que
                     permite ao mesmo frontend falar com projetos de gerações diferentes.
                   additionalProperties: true
+                  properties:
+                    history:
+                      type: array
+                      description: |
+                        Turnos anteriores da conversa, do mais antigo para o mais recente.
+                        Só faz sentido se `history` estiver em `features`.
+
+                        Fica dentro de `options`, e não no primeiro nível do corpo, por
+                        compatibilidade: o backend ignora chaves desconhecidas, então um
+                        projeto sem conversa recebe e descarta sem falhar. A inelegância é
+                        conhecida — `options` foi pensado para os escalares de
+                        `ParameterSpec`, e uma lista de turnos não é descritível ali.
+
+                        **Quem trunca é o servidor.** O cliente manda o que tem; o backend
+                        aplica a janela de histórico que declarar em `/capabilities`.
+                      items: { $ref: "#/components/schemas/Turn" }
             example:
-              question: Segundo o texto, o que a Pedra Filosofal faz?
-              options: { k: 4 }
+              question: E se eu vender dez?
+              options:
+                k: 4
+                history:
+                  - question: Quantos dias de férias eu tenho?
+                    answer: 30 dias corridos [1].
       responses:
         "200":
           description: Resposta, com a evidência que a torna verificável
@@ -127,6 +172,20 @@ paths:
               schema: { $ref: "#/components/schemas/Answer" }
         "409":
           description: Índice vazio; rode a ingestão
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "422":
+          description: |
+            Parâmetro fora do domínio válido, ou turno malformado em `options.history`.
+
+            Turno sem `question` ou sem `answer` é erro, **nunca descarte silencioso**:
+            histórico corrompido produz reescrita errada sem nenhum sintoma.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "500":
+          description: Configuração ausente ou inconsistente no backend
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Problem" }
@@ -165,6 +224,18 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Problem" }
+        "500":
+          description: Configuração ausente ou inconsistente no backend
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "503":
+          description: |
+            Dependência externa fora do ar. A ingestão escreve no armazém vetorial,
+            então ela falha pelos mesmos motivos que `/ask`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
 
 components:
   schemas:
@@ -199,6 +270,76 @@ components:
         distance: { type: number, format: float, example: 0.875 }
         excerpt: { type: string, description: Trecho do texto, para exibição }
 
+    Turn:
+      type: object
+      required: [question, answer]
+      description: Um par pergunta e resposta já ocorrido na conversa.
+      properties:
+        question: { type: string }
+        answer:
+          type: string
+          description: |
+            O texto que o backend devolveu, como devolveu. Se ele continha `[n]`, mantenha:
+            o estágio de reescrita lê a conversa e os rótulos ajudam a resolver referências.
+
+    Citation:
+      type: object
+      required: [label, source]
+      description: |
+        A ligação entre um rótulo `[n]` presente em `text` e o trecho que o sustenta.
+
+        **Não use a posição em `hits` para resolver `[n]`.** `hits` responde "o retriever
+        trouxe o quê"; `citations` responde "esta frase veio de onde". São perguntas
+        diferentes, e amarrar uma à ordem da outra quebra em silêncio.
+      properties:
+        label:
+          type: integer
+          description: O número que aparece como `[n]` no texto. Começa em 1.
+        source: { type: string, example: clt.pdf }
+        page: { type: integer, description: Numerada a partir de 1, para humanos }
+        excerpt: { type: string, description: Trecho que sustenta a afirmação, para exibição }
+
+    RewrittenQuestion:
+      type: object
+      required: [used]
+      description: |
+        A pergunta que foi de fato buscada, depois de resolvida contra o histórico.
+        Existe para ser exibida, não só registrada: ver a pergunta ambígua virar uma
+        pergunta autossuficiente é o que torna o mecanismo observável.
+      properties:
+        used:
+          type: string
+          description: A query enviada ao retriever. Igual a `question` quando não houve reescrita.
+        original: { type: string }
+        rewritten:
+          type: boolean
+          description: Se houve chamada de LLM para reescrever.
+        reason:
+          type: string
+          description: |
+            Por que reescreveu ou não. **Conjunto fechado**, e é isso que o torna
+            agregável: sobre string livre não se mede quantas chamadas de LLM a
+            reescrita condicional evitou.
+
+            | Valor | Quando | Houve chamada |
+            | --- | --- | --- |
+            | `primeiro_turno` | conversa vazia | não |
+            | `historico_presente` | há histórico e a reescrita condicional está desligada | sim |
+            | `pergunta_curta` | condicional ligada, pergunta abaixo do limiar de palavras | sim |
+            | `marcador_anaforico` | condicional ligada, pergunta com pronome ou locução de referência | sim |
+            | `pergunta_autossuficiente` | condicional ligada, nenhum gatilho disparou | não |
+            | `reescrita_falhou` | a chamada falhou; caiu para a pergunta original | tentou |
+
+            Um backend que precise de um motivo novo pede uma versão do contrato,
+            não um valor fora da lista.
+          enum:
+            - primeiro_turno
+            - historico_presente
+            - pergunta_curta
+            - marcador_anaforico
+            - pergunta_autossuficiente
+            - reescrita_falhou
+
     Answer:
       type: object
       required: [text, hits, refused, timings]
@@ -213,15 +354,37 @@ components:
         hits:
           type: array
           items: { $ref: "#/components/schemas/SearchHit" }
+        citations:
+          type: array
+          description: |
+            Opcional, desde 1.1.0. Presente quando o projeto emite citação por afirmação.
+            **Uma resposta com `refused: true` tem `citations` vazia** — recusa com citação
+            é defeito.
+          items: { $ref: "#/components/schemas/Citation" }
+        rewritten_question:
+          allOf: [{ $ref: "#/components/schemas/RewrittenQuestion" }]
+          description: Opcional, desde 1.1.0. Presente quando `history` está em `features`.
         timings:
           type: object
           description: Latência por estágio, em segundos. Permite atribuir lentidão ao estágio certo.
           properties:
+            rewrite_s:
+              type: number
+              format: float
+              description: |
+                Opcional, desde 1.1.0. O estágio de reescrita é uma chamada de LLM a mais
+                por turno; sem medi-lo em separado, o custo novo não é atribuível.
             search_s: { type: number, format: float }
             generation_s: { type: number, format: float }
         meta:
           type: object
-          description: Extras do projeto (rota escolhida, ciclos do grafo, saltos). Opcional.
+          description: |
+            Extras do projeto (rota escolhida, ciclos do grafo, saltos). Opcional.
+
+            Exemplo em uso: o `rag-02` publica aqui `unresolved_labels`, os rótulos
+            `[n]` que o modelo citou e que não existem entre os trechos enviados. É
+            anomalia diagnosticável de um projeto, não parte do contrato comum, e por
+            isso mora em `meta` e não em `citations`.
           additionalProperties: true
 
     IngestionReport:

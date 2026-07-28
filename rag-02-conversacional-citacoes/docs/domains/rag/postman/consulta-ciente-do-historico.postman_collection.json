@@ -1,0 +1,1152 @@
+{
+  "info": {
+    "_postman_id": "b2f1a4c6-8d3e-4f7a-9c21-consulta-hist02",
+    "name": "consulta ciente do historico com citacao resolvida",
+    "description": "Coleção derivada do FDD `docs/domains/rag/features/consulta-ciente-do-historico-fdd.md` (seção 5, Contratos públicos; seção 6, matriz de erros; seção 9, critérios de aceite) do projeto `rag-02-conversacional-citacoes`.\n\nContrato publicado cruzado: `../docs/contracts/rag-api.yaml` (OpenAPI 3.1.0, versão 1.1.0). Divergências encontradas estão em `divergencias.md`, na mesma pasta.\n\nNenhuma rota do contrato exige autenticação: o `rag-api.yaml` não declara `securitySchemes` e a seção 5 do FDD não cita header de autorização. `accessToken` existe no environment apenas como espaço reservado.\n\nOs testes afirmam as invariantes da seção 6 do FDD, não só o status code:\n1. `refused == true` implica `citations == []`;\n2. `rewritten_question` presente em toda resposta de `/ask`;\n3. `timings.rewrite_s == 0.0` se e somente se `reason` for `primeiro_turno` ou `pergunta_autossuficiente`;\n4. todo rótulo `[n]` do texto está em `citations` ou em `meta.unresolved_labels`.\n\nO serviço ainda não existe (projeto greenfield). Esta coleção é o artefato executável do critério de aceite 10 da seção 9, a ser rodado depois da etapa 11 do build order.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "Servidor padrão do rag-api.yaml. Assumido: a base URL local não foi confirmada contra código, porque o serviço ainda não existe."
+    },
+    {
+      "key": "perguntaTurno1",
+      "value": "Quantos dias de férias eu tenho?",
+      "type": "string",
+      "description": "Pergunta do turno 1 (FDD seção 5, exemplo de requisição, linha 202; seção 9 critério 1, linha 474)."
+    },
+    {
+      "key": "respostaTurno1",
+      "value": "30 dias corridos [1].",
+      "type": "string",
+      "description": "Resposta do turno 1, já escapada para JSON. Preenchida pelo teste de `POST /ask — turno 1`; o default vem do exemplo do FDD (linha 202) para que os requests seguintes rodem isolados."
+    },
+    {
+      "key": "perguntaSeguimento",
+      "value": "E se eu vender dez?",
+      "type": "string",
+      "description": "Pergunta ambígua do turno 2 (FDD seção 5, linha 195; seção 9 critério 1, linha 475)."
+    },
+    {
+      "key": "perguntaAnaforica",
+      "value": "E nesse caso?",
+      "type": "string",
+      "description": "Follow-up anafórico do exemplo de recusa (FDD seção 5, linha 241)."
+    },
+    {
+      "key": "perguntaForaDoCorpus",
+      "value": "O que o Código de Defesa do Consumidor diz sobre vício do produto?",
+      "type": "string",
+      "description": "Pergunta do corpus de controle (`pdfs/fora-do-corpus/`), tirada do exemplo de recusa do FDD (linha 239)."
+    },
+    {
+      "key": "perguntaAutossuficiente",
+      "value": "quantos dias posso converter em abono pecuniário considerando o período aquisitivo mencionado",
+      "type": "string",
+      "description": "Modo de falha conhecido e entregável da heurística léxica (FDD seção 5, linhas 318 a 321): longa, sem marcador anafórico e mesmo assim dependente do turno anterior."
+    },
+    {
+      "key": "fraseDeEscape",
+      "value": "Não encontrei essa informação nos documentos.",
+      "type": "string",
+      "description": "`ESCAPE_PHRASE`, contrato 8 do FDD (linha 343). Comparação literal: mudar a constante quebra a validação do projeto."
+    },
+    {
+      "key": "k",
+      "value": "4",
+      "type": "string",
+      "description": "Default de `k` no descritor da seção 5 do FDD (linha 260)."
+    },
+    {
+      "key": "historyWindow",
+      "value": "6",
+      "type": "string",
+      "description": "Default de `history_window` no descritor da seção 5 do FDD (linha 261)."
+    },
+    {
+      "key": "chunkSize",
+      "value": "1000",
+      "type": "string",
+      "description": "Default de `chunk_size` (FDD linha 263)."
+    },
+    {
+      "key": "chunkOverlap",
+      "value": "150",
+      "type": "string",
+      "description": "Default de `chunk_overlap` (FDD linha 264)."
+    }
+  ],
+  "item": [
+    {
+      "name": "meta",
+      "description": "Contratos 3 e 2 da seção 5 do FDD: `GET /health` (linha 271) e `GET /capabilities` (linha 252). Sem efeito colateral e sem chamada paga; rode primeiro.",
+      "item": [
+        {
+          "name": "GET /health — serviço de pé e índice com conteúdo",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "FDD seção 5, contrato 3 (linhas 271 a 274): `/health` reporta `collection`, `indexed_chunks`, `embedding_model` e `embedding_dimensions`. Critério de aceite: a seção 9 exige esses seis campos, embora o `rag-api.yaml` só marque `status` e `project` como `required` — ver `divergencias.md`.\n\nO 503 desta rota (dimensão do embedding diferente da coleção, FDD seção 6 linha 370) não vira request: depende de estado provocado da coleção."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, contrato 3)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('campos exigidos pela secao 9 estao presentes', function () {",
+                  "    ['status', 'project', 'collection', 'indexed_chunks', 'embedding_model', 'embedding_dimensions']",
+                  "        .forEach(function (campo) {",
+                  "            pm.expect(json, 'campo ' + campo).to.have.property(campo);",
+                  "        });",
+                  "});",
+                  "",
+                  "pm.test('status pertence ao enum do contrato [ok, degraded]', function () {",
+                  "    pm.expect(json.status).to.be.oneOf(['ok', 'degraded']);",
+                  "});",
+                  "",
+                  "pm.test('project identifica este projeto', function () {",
+                  "    pm.expect(json.project).to.eql('rag-02-conversacional-citacoes');",
+                  "});",
+                  "",
+                  "pm.test('indexed_chunks e embedding_dimensions sao inteiros', function () {",
+                  "    pm.expect(json.indexed_chunks).to.be.a('number');",
+                  "    pm.expect(json.embedding_dimensions).to.be.a('number');",
+                  "});",
+                  "",
+                  "// Sinaliza para os requests de /ask se o indice tem conteudo.",
+                  "pm.collectionVariables.set('indexedChunks', String(json.indexed_chunks));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /capabilities — descritor do backend",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/capabilities",
+              "host": ["{{baseUrl}}"],
+              "path": ["capabilities"]
+            },
+            "description": "FDD seção 5, contrato 2 (linhas 252 a 269). `history` em `features` é o gatilho do frontend genérico (linha 269 e seção 8, linha 454). Os cinco parâmetros e seus limites vêm do bloco JSON das linhas 259 a 265."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, contrato 2)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('required do contrato: project, features, parameters', function () {",
+                  "    pm.expect(json).to.have.property('project');",
+                  "    pm.expect(json).to.have.property('features');",
+                  "    pm.expect(json).to.have.property('parameters');",
+                  "});",
+                  "",
+                  "pm.test('features contem ask, ingest e history (FDD linha 258)', function () {",
+                  "    pm.expect(json.features).to.include('ask');",
+                  "    pm.expect(json.features).to.include('ingest');",
+                  "    pm.expect(json.features).to.include('history');",
+                  "});",
+                  "",
+                  "pm.test('features so usa valores do enum do rag-api.yaml', function () {",
+                  "    json.features.forEach(function (f) {",
+                  "        pm.expect(f).to.be.oneOf(['ask', 'ingest', 'stream', 'sources', 'history']);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('os cinco parametros da secao 5 estao declarados', function () {",
+                  "    ['k', 'history_window', 'conditional_rewrite', 'chunk_size', 'chunk_overlap']",
+                  "        .forEach(function (p) {",
+                  "            pm.expect(json.parameters, 'parametro ' + p).to.have.property(p);",
+                  "        });",
+                  "});",
+                  "",
+                  "pm.test('todo ParameterSpec tem type e label (required do contrato)', function () {",
+                  "    Object.keys(json.parameters).forEach(function (nome) {",
+                  "        const spec = json.parameters[nome];",
+                  "        pm.expect(spec, nome + '.type').to.have.property('type');",
+                  "        pm.expect(spec, nome + '.label').to.have.property('label');",
+                  "        pm.expect(spec.type).to.be.oneOf(['integer', 'number', 'string', 'boolean', 'enum']);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('limites de k: default 4, minimo 1, maximo 20 (FDD linha 260)', function () {",
+                  "    pm.expect(json.parameters.k.type).to.eql('integer');",
+                  "    pm.expect(json.parameters.k.default).to.eql(4);",
+                  "    pm.expect(json.parameters.k.minimum).to.eql(1);",
+                  "    pm.expect(json.parameters.k.maximum).to.eql(20);",
+                  "    pm.expect(json.parameters.k.applies_to).to.include('ask');",
+                  "});",
+                  "",
+                  "pm.test('limites de history_window: default 6, minimo 0, maximo 50 (FDD linha 261)', function () {",
+                  "    pm.expect(json.parameters.history_window.type).to.eql('integer');",
+                  "    pm.expect(json.parameters.history_window.default).to.eql(6);",
+                  "    pm.expect(json.parameters.history_window.minimum).to.eql(0);",
+                  "    pm.expect(json.parameters.history_window.maximum).to.eql(50);",
+                  "    pm.expect(json.parameters.history_window.applies_to).to.include('ask');",
+                  "});",
+                  "",
+                  "pm.test('conditional_rewrite e booleano e nasce desligado (FDD linhas 262 e 552)', function () {",
+                  "    pm.expect(json.parameters.conditional_rewrite.type).to.eql('boolean');",
+                  "    pm.expect(json.parameters.conditional_rewrite.default).to.eql(false);",
+                  "    pm.expect(json.parameters.conditional_rewrite.applies_to).to.include('ask');",
+                  "});",
+                  "",
+                  "pm.test('chunk_size e chunk_overlap valem para ingest (FDD linhas 263 e 264)', function () {",
+                  "    pm.expect(json.parameters.chunk_size.default).to.eql(1000);",
+                  "    pm.expect(json.parameters.chunk_size.minimum).to.eql(100);",
+                  "    pm.expect(json.parameters.chunk_size.maximum).to.eql(8000);",
+                  "    pm.expect(json.parameters.chunk_size.applies_to).to.include('ingest');",
+                  "    pm.expect(json.parameters.chunk_overlap.default).to.eql(150);",
+                  "    pm.expect(json.parameters.chunk_overlap.minimum).to.eql(0);",
+                  "    pm.expect(json.parameters.chunk_overlap.maximum).to.eql(2000);",
+                  "    pm.expect(json.parameters.chunk_overlap.applies_to).to.include('ingest');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ask",
+      "description": "Contrato 1 da seção 5 do FDD (`POST /ask`, linha 181). A ordem dos requests segue o fluxo principal da seção 4: o turno 1 produz a resposta que o turno 2 consome em `options.history` (o encadeamento é feito por variável de coleção, porque o backend não guarda conversa — ADR-002).\n\nTodos estes requests gastam chamada paga de LLM. Exigem índice populado (`POST /ingest` rodado antes) e `OPENAI_API_KEY` configurada.",
+      "item": [
+        {
+          "name": "POST /ask — turno 1, sem history (reason primeiro_turno)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTurno1}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"history_window\": {{historyWindow}},\n    \"conditional_rewrite\": false\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "Critério de aceite: primeiro turno curto-circuita o estágio de reescrita (FDD seção 4, passo 5 linha 130 e fluxo alternativo linha 149).\n\nEspera `rewritten_question.reason == \"primeiro_turno\"`, `rewritten == false` e `timings.rewrite_s == 0.0` exatamente (invariante 3, linha 387; objetivo técnico da linha 68).\n\nO teste grava a resposta em `respostaTurno1` para o turno 2 montar `options.history`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 184)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('required do Answer: text, hits, refused, timings', function () {",
+                  "    ['text', 'hits', 'refused', 'timings'].forEach(function (campo) {",
+                  "        pm.expect(json, 'campo ' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('invariante 2: rewritten_question presente na resposta', function () {",
+                  "    pm.expect(json).to.have.property('rewritten_question');",
+                  "    pm.expect(json.rewritten_question).to.have.property('used');",
+                  "});",
+                  "",
+                  "pm.test('reason == primeiro_turno (FDD secao 5, tabela linha 300)', function () {",
+                  "    pm.expect(json.rewritten_question.reason).to.eql('primeiro_turno');",
+                  "});",
+                  "",
+                  "pm.test('rewritten == false: nenhuma chamada de LLM de reescrita', function () {",
+                  "    pm.expect(json.rewritten_question.rewritten).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('used == original == a pergunta enviada', function () {",
+                  "    const enviada = pm.collectionVariables.get('perguntaTurno1');",
+                  "    pm.expect(json.rewritten_question.used).to.eql(enviada);",
+                  "    if (json.rewritten_question.original !== undefined) {",
+                  "        pm.expect(json.rewritten_question.original).to.eql(enviada);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('invariante 3: timings.rewrite_s == 0.0 exatamente', function () {",
+                  "    pm.expect(json.timings).to.have.property('rewrite_s');",
+                  "    pm.expect(json.timings.rewrite_s).to.eql(0);",
+                  "});",
+                  "",
+                  "pm.test('timings tem os tres estagios (FDD secao 7, linha 400)', function () {",
+                  "    pm.expect(json.timings).to.have.property('search_s');",
+                  "    pm.expect(json.timings).to.have.property('generation_s');",
+                  "});",
+                  "",
+                  "pm.test('invariante 1: refused true implica citations vazia', function () {",
+                  "    if (json.refused === true) {",
+                  "        pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('invariante 4: todo rotulo [n] esta em citations ou em meta.unresolved_labels', function () {",
+                  "    const rotulos = Array.from(new Set((json.text.match(/\\[(\\d+)\\]/g) || [])",
+                  "        .map(function (s) { return parseInt(s.slice(1, -1), 10); })));",
+                  "    const resolvidos = (json.citations || []).map(function (c) { return c.label; });",
+                  "    const naoResolvidos = ((json.meta || {}).unresolved_labels) || [];",
+                  "    rotulos.forEach(function (n) {",
+                  "        pm.expect(resolvidos.concat(naoResolvidos), 'rotulo [' + n + ']').to.include(n);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('hits respeita k e o required do SearchHit (source, distance)', function () {",
+                  "    pm.expect(json.hits).to.be.an('array');",
+                  "    pm.expect(json.hits.length).to.be.at.most(Number(pm.collectionVariables.get('k')));",
+                  "    json.hits.forEach(function (h) {",
+                  "        pm.expect(h).to.have.property('source');",
+                  "        pm.expect(h).to.have.property('distance');",
+                  "    });",
+                  "});",
+                  "",
+                  "// Encadeamento (FDD secao 4, passo 11): o cliente e dono da transcricao.",
+                  "// JSON.stringify escapa aspas e quebras de linha; o slice tira as aspas externas,",
+                  "// para o valor poder ser interpolado dentro de uma string JSON do proximo request.",
+                  "pm.collectionVariables.set('respostaTurno1', JSON.stringify(json.text).slice(1, -1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — turno 2 com history, conditional_rewrite false (reason historico_presente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaSeguimento}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"history_window\": {{historyWindow}},\n    \"conditional_rewrite\": false,\n    \"history\": [\n      { \"question\": \"{{perguntaTurno1}}\", \"answer\": \"{{respostaTurno1}}\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "Exemplo de requisição da seção 5 do FDD (linhas 193 a 205), com o histórico encadeado do turno anterior.\n\nCom `conditional_rewrite` desligado e histórico presente, o estágio reescreve sempre: `rewritten == true` e `reason == \"historico_presente\"` (tabela da linha 301).\n\nCritério 2 do PRD (seção 9, linha 477) e objetivo técnico da linha 54: o texto buscado é `rewritten_question.used`, nunca a pergunta original.\n\nSe o `reason` vier `reescrita_falhou`, o teste falha de propósito: é o fallback da linha 150 e significa que a OpenAI não respondeu na reescrita, não que o contrato está errado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 184)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('invariante 2: rewritten_question presente', function () {",
+                  "    pm.expect(json).to.have.property('rewritten_question');",
+                  "});",
+                  "",
+                  "pm.test('rewritten == true (conditional_rewrite desligado e ha historico)', function () {",
+                  "    pm.expect(json.rewritten_question.rewritten).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('reason == historico_presente (FDD tabela linha 301)', function () {",
+                  "    pm.expect(json.rewritten_question.reason).to.eql('historico_presente');",
+                  "});",
+                  "",
+                  "pm.test('a query buscada e a resolvida, nao a original (objetivo tecnico linha 54)', function () {",
+                  "    pm.expect(json.rewritten_question.used).to.be.a('string').and.not.empty;",
+                  "    pm.expect(json.rewritten_question.used).to.not.eql(pm.collectionVariables.get('perguntaSeguimento'));",
+                  "});",
+                  "",
+                  "pm.test('original preserva a pergunta enviada', function () {",
+                  "    if (json.rewritten_question.original !== undefined) {",
+                  "        pm.expect(json.rewritten_question.original).to.eql(pm.collectionVariables.get('perguntaSeguimento'));",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('invariante 3: houve reescrita, entao rewrite_s > 0.0', function () {",
+                  "    pm.expect(json.timings).to.have.property('rewrite_s');",
+                  "    pm.expect(json.timings.rewrite_s).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('invariante 1: refused true implica citations vazia', function () {",
+                  "    if (json.refused === true) {",
+                  "        pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('invariante 4: todo rotulo [n] esta em citations ou em meta.unresolved_labels', function () {",
+                  "    const rotulos = Array.from(new Set((json.text.match(/\\[(\\d+)\\]/g) || [])",
+                  "        .map(function (s) { return parseInt(s.slice(1, -1), 10); })));",
+                  "    const resolvidos = (json.citations || []).map(function (c) { return c.label; });",
+                  "    const naoResolvidos = ((json.meta || {}).unresolved_labels) || [];",
+                  "    rotulos.forEach(function (n) {",
+                  "        pm.expect(resolvidos.concat(naoResolvidos), 'rotulo [' + n + ']').to.include(n);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('required do Citation: label inteiro a partir de 1, e source', function () {",
+                  "    (json.citations || []).forEach(function (c) {",
+                  "        pm.expect(c).to.have.property('label');",
+                  "        pm.expect(c).to.have.property('source');",
+                  "        pm.expect(c.label).to.be.at.least(1);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('respostaTurno2', JSON.stringify(json.text).slice(1, -1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — turno 3, conditional_rewrite true e pergunta curta (reason pergunta_curta)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTurno1}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"history_window\": {{historyWindow}},\n    \"conditional_rewrite\": true,\n    \"history\": [\n      { \"question\": \"{{perguntaTurno1}}\", \"answer\": \"{{respostaTurno1}}\" },\n      { \"question\": \"{{perguntaSeguimento}}\", \"answer\": \"{{respostaTurno2}}\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "Heurística léxica da seção 5 (linhas 307 a 313): a pergunta tem menos de 8 palavras, não contém marcador anafórico e não começa por conjunção, então o único gatilho possível é o de comprimento — `reason == \"pergunta_curta\"` (tabela da linha 302), `rewritten == true`.\n\nA pergunta foi escolhida assim de propósito: o FDD não declara precedência entre `pergunta_curta` e `marcador_anaforico` quando os dois gatilhos disparam (ver `divergencias.md`), e uma pergunta que dispare os dois tornaria o teste ambíguo.\n\nRequer que o turno 2 tenha rodado antes, para `respostaTurno2` estar preenchida."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 184)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('invariante 2: rewritten_question presente', function () {",
+                  "    pm.expect(json).to.have.property('rewritten_question');",
+                  "});",
+                  "",
+                  "pm.test('reason == pergunta_curta (heuristica lexica, FDD linha 309)', function () {",
+                  "    pm.expect(json.rewritten_question.reason).to.eql('pergunta_curta');",
+                  "});",
+                  "",
+                  "pm.test('rewritten == true: o gatilho de comprimento reescreve', function () {",
+                  "    pm.expect(json.rewritten_question.rewritten).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('invariante 3: reason nao e primeiro_turno nem pergunta_autossuficiente, entao rewrite_s > 0.0', function () {",
+                  "    pm.expect(json.timings.rewrite_s).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('reason pertence ao conjunto fechado da secao 5 (linhas 299 a 305)', function () {",
+                  "    pm.expect(json.rewritten_question.reason).to.be.oneOf([",
+                  "        'primeiro_turno', 'historico_presente', 'pergunta_curta',",
+                  "        'marcador_anaforico', 'pergunta_autossuficiente', 'reescrita_falhou'",
+                  "    ]);",
+                  "});",
+                  "",
+                  "pm.test('invariante 1: refused true implica citations vazia', function () {",
+                  "    if (json.refused === true) {",
+                  "        pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — conditional_rewrite true e pergunta autossuficiente (reason pergunta_autossuficiente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaAutossuficiente}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"history_window\": {{historyWindow}},\n    \"conditional_rewrite\": true,\n    \"history\": [\n      { \"question\": \"{{perguntaTurno1}}\", \"answer\": \"{{respostaTurno1}}\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "O modo de falha conhecido e entregável do FDD (seção 5, linhas 318 a 321): pergunta longa, sem marcador, mesmo assim dependente do turno anterior. Nenhum gatilho da heurística dispara, então `reason == \"pergunta_autossuficiente\"`, `rewritten == false` e `timings.rewrite_s == 0.0` (invariante 3, linha 387).\n\nÉ a segunda metade do 'se e somente se' da invariante 3, e a evidência que o critério 5 do PRD exige registrar (seção 9, linha 486)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 184)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('reason == pergunta_autossuficiente (FDD tabela linha 304)', function () {",
+                  "    pm.expect(json.rewritten_question.reason).to.eql('pergunta_autossuficiente');",
+                  "});",
+                  "",
+                  "pm.test('rewritten == false: a heuristica pulou a chamada de LLM', function () {",
+                  "    pm.expect(json.rewritten_question.rewritten).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('invariante 3: rewrite_s == 0.0 exatamente quando nao houve chamada', function () {",
+                  "    pm.expect(json.timings.rewrite_s).to.eql(0);",
+                  "});",
+                  "",
+                  "pm.test('used == a pergunta original, sem reescrita', function () {",
+                  "    pm.expect(json.rewritten_question.used).to.eql(pm.collectionVariables.get('perguntaAutossuficiente'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — recusa no turno 1 (corpus de controle)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaForaDoCorpus}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"history_window\": {{historyWindow}},\n    \"conditional_rewrite\": false\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "Pergunta cujo assunto está em `pdfs/fora-do-corpus/`, que nunca é indexado (invariante 6, linha 391). Espera `200` — recusa não é erro (seção 5, linha 184) — com `refused == true` e `citations == []` (invariante 1, linha 385).\n\n`hits` não vazio com `refused: true` é o caso normal e importante (seção 5, linhas 249 e 250): a busca sempre devolve k trechos, e a distância alta é a evidência de que nenhum servia.\n\n`text` é comparado literalmente contra `ESCAPE_PHRASE` (contrato 8, linha 343)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200: recusa nao e erro (FDD secao 5, linha 184)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('refused == true para pergunta do corpus de controle', function () {",
+                  "    pm.expect(json.refused).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('invariante 1: refused true implica citations == []', function () {",
+                  "    pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "});",
+                  "",
+                  "pm.test('text e exatamente a ESCAPE_PHRASE (contrato 8, linha 343)', function () {",
+                  "    pm.expect(json.text.trim()).to.eql(pm.collectionVariables.get('fraseDeEscape'));",
+                  "});",
+                  "",
+                  "pm.test('hits nao vazio mesmo com recusa (FDD linhas 249 e 250)', function () {",
+                  "    pm.expect(json.hits).to.be.an('array').that.is.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('invariante 2: rewritten_question presente mesmo na recusa', function () {",
+                  "    pm.expect(json).to.have.property('rewritten_question');",
+                  "    pm.expect(json.rewritten_question.reason).to.eql('primeiro_turno');",
+                  "});",
+                  "",
+                  "pm.test('nenhum rotulo [n] no texto de recusa', function () {",
+                  "    pm.expect(json.text.match(/\\[(\\d+)\\]/g) || []).to.be.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — recusa sobrevive ao follow-up anaforico",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaAnaforica}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"history_window\": {{historyWindow}},\n    \"conditional_rewrite\": false,\n    \"history\": [\n      { \"question\": \"{{perguntaTurno1}}\", \"answer\": \"{{respostaTurno1}}\" },\n      { \"question\": \"{{perguntaForaDoCorpus}}\", \"answer\": \"{{fraseDeEscape}}\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "Exemplo de resposta recusada da seção 5 (linhas 231 a 247) e risco central da seção 10 (linhas 508 a 522): a reescrita não pode legitimar uma pergunta fora do corpus. O turno anterior é sobre o corpus de controle, e `E nesse caso?` deve continuar recusando.\n\nA matriz completa (turnos 1, 2 e 3 × dentro/fora do corpus × reescrita ligada/desligada) é do critério 4 do PRD, coberta por pytest com dublês e **sem chamada à API paga** (seção 9, linha 485). Este request é a amostra HTTP dela, não a matriz.\n\nInvariante 1: `refused == true` implica `citations == []`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200: recusa nao e erro (FDD secao 5, linha 184)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('a recusa sobrevive ao follow-up (PRD 4, secao 9 linha 483)', function () {",
+                  "    pm.expect(json.refused).to.eql(true);",
+                  "});",
+                  "",
+                  "pm.test('invariante 1: refused true implica citations == []', function () {",
+                  "    pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "});",
+                  "",
+                  "pm.test('text e exatamente a ESCAPE_PHRASE (contrato 8, linha 343)', function () {",
+                  "    pm.expect(json.text.trim()).to.eql(pm.collectionVariables.get('fraseDeEscape'));",
+                  "});",
+                  "",
+                  "pm.test('a query usada e diagnosticavel (secao 10, linha 520)', function () {",
+                  "    pm.expect(json.rewritten_question.used).to.be.a('string').and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('reason pertence ao conjunto fechado da secao 5', function () {",
+                  "    pm.expect(json.rewritten_question.reason).to.be.oneOf([",
+                  "        'primeiro_turno', 'historico_presente', 'pergunta_curta',",
+                  "        'marcador_anaforico', 'pergunta_autossuficiente', 'reescrita_falhou'",
+                  "    ]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — history_window 0 ignora o historico",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaSeguimento}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"history_window\": 0,\n    \"conditional_rewrite\": false,\n    \"history\": [\n      { \"question\": \"{{perguntaTurno1}}\", \"answer\": \"{{respostaTurno1}}\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "`history_window = 0` é válido e significa ignorar o histórico (FDD seção 6, linha 365). Espera `200`, não 422.\n\n**Ambiguidade registrada em `divergencias.md`:** a seção 4 aplica a janela no passo 4, antes da decisão do passo 5, o que implicaria `reason == \"primeiro_turno\"` (conversa vazia após o truncamento); mas o FDD não afirma isso em lugar nenhum. O teste só exige que o `reason` pertença ao conjunto fechado e que a invariante 3 valha, sem fixar qual valor."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200: history_window 0 e valido (FDD secao 6, linha 365)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('invariante 2: rewritten_question presente', function () {",
+                  "    pm.expect(json).to.have.property('rewritten_question');",
+                  "});",
+                  "",
+                  "pm.test('reason pertence ao conjunto fechado da secao 5', function () {",
+                  "    pm.expect(json.rewritten_question.reason).to.be.oneOf([",
+                  "        'primeiro_turno', 'historico_presente', 'pergunta_curta',",
+                  "        'marcador_anaforico', 'pergunta_autossuficiente', 'reescrita_falhou'",
+                  "    ]);",
+                  "});",
+                  "",
+                  "pm.test('invariante 3: rewrite_s == 0.0 se e somente se primeiro_turno ou pergunta_autossuficiente', function () {",
+                  "    const semChamada = ['primeiro_turno', 'pergunta_autossuficiente'].indexOf(json.rewritten_question.reason) !== -1;",
+                  "    if (semChamada) {",
+                  "        pm.expect(json.timings.rewrite_s).to.eql(0);",
+                  "    } else {",
+                  "        pm.expect(json.timings.rewrite_s).to.be.above(0);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — chaves desconhecidas em options sao ignoradas",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTurno1}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"temperature\": 0.9,\n    \"rerank\": true\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "FDD seção 5, linha 189: chaves desconhecidas em `options` são ignoradas, nunca causam erro. É o que permite ao mesmo frontend genérico falar com projetos de gerações diferentes (`rag-api.yaml`, `additionalProperties: true` em `options`).\n\n`temperature` e `rerank` são chaves inventadas de propósito para o teste: não existem no descritor de `/capabilities`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200: chave desconhecida nao causa erro (FDD linha 189)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('required do Answer preservado', function () {",
+                  "    ['text', 'hits', 'refused', 'timings'].forEach(function (campo) {",
+                  "        pm.expect(json).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('invariante 2: rewritten_question presente', function () {",
+                  "    pm.expect(json).to.have.property('rewritten_question');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ingest",
+      "description": "Contrato 4 da seção 5 do FDD (linha 271): `/ingest` recria a coleção e devolve `IngestionReport`.\n\n**Operação cara e destrutiva**: apaga o índice anterior. Rode antes dos requests de `ask/`, e só com o corpus normativo em `pdfs/`.",
+      "item": [
+        {
+          "name": "POST /ingest — indexa o corpus recriando a colecao",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"chunk_size\": {{chunkSize}},\n    \"chunk_overlap\": {{chunkOverlap}}\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "description": "FDD seção 5, contrato 4 (linhas 271 a 274) e seção 7 (campos por ingestão, linha 415). O glob é `pdfs/*.pdf`, não recursivo: `pdfs/fora-do-corpus/` nunca é alcançado (invariante 6, linha 391). Essa invariante é verificada por `grep`, não por HTTP.\n\nPré-requisito operacional bloqueante 1 da seção 8 (linha 462): hoje `pdfs/` só tem `.gitkeep`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, contrato 4)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('required do IngestionReport: pages, chunks, seconds', function () {",
+                  "    ['pages', 'chunks', 'seconds'].forEach(function (campo) {",
+                  "        pm.expect(json, 'campo ' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('o corpus produziu chunks', function () {",
+                  "    pm.expect(json.chunks).to.be.above(0);",
+                  "    pm.expect(json.pages).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('os parametros enviados sao ecoados no relatorio (FDD secao 7, linha 415)', function () {",
+                  "    if (json.chunk_size !== undefined) {",
+                  "        pm.expect(json.chunk_size).to.eql(Number(pm.collectionVariables.get('chunkSize')));",
+                  "    }",
+                  "    if (json.chunk_overlap !== undefined) {",
+                  "        pm.expect(json.chunk_overlap).to.eql(Number(pm.collectionVariables.get('chunkOverlap')));",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('discarded_pages, quando presente, nao excede pages', function () {",
+                  "    if (json.discarded_pages !== undefined) {",
+                  "        pm.expect(json.discarded_pages).to.be.at.most(json.pages);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "erros",
+      "description": "Matriz de erros da seção 6 do FDD (linhas 357 a 371), restrita às linhas que uma requisição HTTP consegue provocar de forma determinística.\n\nAs linhas que dependem de falha de transporte, de configuração ausente ou de saída não determinística do LLM estão listadas no `README.md` como não cobertas por HTTP.\n\n**Atenção:** o `rag-api.yaml` 1.1.0 não declara `422` em `POST /ask`. Todos os requests de 422 deste diretório testam comportamento que só o FDD sustenta — ver `divergencias.md`, severidade ALTA.",
+      "item": [
+        {
+          "name": "POST /ask — k = 0 (422 InvalidParameterException)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTurno1}}\",\n  \"options\": { \"k\": 0 }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "FDD seção 5, linha 186 (`k < 1`) e seção 6, linha 364. Validado na borda, antes de qualquer chamada paga. `k` mínimo é 1 no descritor de `/capabilities` (linha 260)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 364)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('corpo no formato Problem: title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "    pm.expect(json.detail).to.be.a('string').and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('a mensagem menciona o parametro invalido', function () {",
+                  "    pm.expect(JSON.stringify(json).toLowerCase()).to.include('k');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — k = 21 (422 acima do maximo)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTurno1}}\",\n  \"options\": { \"k\": 21 }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "FDD seção 6, linha 364: `k < 1` ou `k > 20` levanta `InvalidParameterException`, 422. O máximo 20 vem do descritor de `/capabilities` (linha 260).\n\nA seção 5 (linha 186) só cita `k < 1`; o limite superior aparece apenas na seção 6. Divergência interna do FDD registrada em `divergencias.md`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 364)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('corpo no formato Problem: title e detail', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — history_window negativo (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTurno1}}\",\n  \"options\": { \"history_window\": -1 }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "FDD seção 5, linha 186 e seção 6, linha 365: `history_window < 0` é 422. `0` é válido e significa ignorar o histórico — está coberto por um request de sucesso na pasta `ask/`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 365)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('corpo no formato Problem: title e detail', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — turno malformado em history, sem answer (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaSeguimento}}\",\n  \"options\": {\n    \"history\": [\n      { \"question\": \"{{perguntaTurno1}}\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "FDD seção 4, passo 2 (linha 122) e seção 6, linha 366: turno sem `question` ou sem `answer` é erro 422, **nunca descarte silencioso** — histórico corrompido produziria reescrita errada sem sintoma.\n\nO `rag-api.yaml` declara `Turn.required = [question, answer]`, então o schema sustenta a validação; o que ele não declara é o status 422 nesta rota."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 366)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('corpo no formato Problem: title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('nao houve descarte silencioso: a resposta nao e um Answer', function () {",
+                  "    pm.expect(json).to.not.have.property('text');",
+                  "    pm.expect(json).to.not.have.property('hits');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — indice vazio (409 EmptyIndexException)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTurno1}}\",\n  \"options\": { \"k\": {{k}} }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "description": "FDD seção 5, linha 185 e seção 6, linha 363: coleção inexistente ou vazia levanta `EmptyIndexException` no `require_index()` do `RetrievalService`, **antes de qualquer chamada paga**.\n\n**Pré-condição:** rode com o índice vazio (`docker compose down -v` e sem `POST /ingest`). Com o índice populado este request devolve 200 e o teste falha — é o único da coleção que depende de estado oposto ao dos demais. Execute-o isolado, não no fluxo completo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409 com indice vazio (FDD secao 6, linha 363)', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('corpo no formato Problem: title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('detail diz o que fazer: rodar a ingestao (FDD linha 185)', function () {",
+                  "    pm.expect(json.detail.toLowerCase()).to.include('ingest');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ingest — chunk_overlap >= chunk_size (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"chunk_size\": 500,\n    \"chunk_overlap\": 500\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "description": "FDD seção 6, linha 367: `chunk_overlap >= chunk_size` levanta `InvalidParameterException`, 422, **validado antes de ler o corpus**. É o único 422 declarado no `rag-api.yaml` (`/ingest`, resposta 422: 'Parâmetro inválido, por exemplo overlap maior que size').\n\nO teste também confere que o índice não foi recriado: a resposta não pode ser um `IngestionReport`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 367; rag-api.yaml /ingest 422)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('corpo no formato Problem: title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('nada foi indexado: a resposta nao e um IngestionReport', function () {",
+                  "    pm.expect(json).to.not.have.property('chunks');",
+                  "    pm.expect(json).to.not.have.property('pages');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ingest — corpus vazio (422 EmptyCorpusException)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"chunk_size\": {{chunkSize}},\n    \"chunk_overlap\": {{chunkOverlap}}\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "description": "FDD seção 6, linha 368: `pdfs/` sem PDF levanta `EmptyCorpusException`, 422, sem chamada paga.\n\n**Pré-condição:** `pdfs/` sem nenhum `.pdf` na raiz — que é exatamente o estado de hoje (seção 8, pré-requisito bloqueante 1, linha 462). Com o corpus presente este request devolve 200 e o teste falha; execute-o isolado, antes de popular `pdfs/`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 com pdfs/ vazio (FDD secao 6, linha 368)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('corpo no formato Problem: title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

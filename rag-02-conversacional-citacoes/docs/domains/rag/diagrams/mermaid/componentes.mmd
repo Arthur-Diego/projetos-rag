@@ -1,0 +1,89 @@
+---
+title: Camadas e dependências do domínio rag (grafo estritamente descendente)
+---
+flowchart TD
+    subgraph ROOTS["ENTRYPOINTS - argparse e composition root"]
+        ING["ingest.py"]
+        ASK["ask.py<br/><i>turno único, sem histórico (ADR-006)</i>"]
+        CHAT["chat.py<br/><i>REPL, guarda a transcrição no processo</i>"]
+        SERVE["serve.py<br/><i>só publica o app</i>"]
+    end
+
+    subgraph API["api/ - camada HTTP, traduz exceção em status"]
+        APP["app.py + routes/<br/><i>ask, ingest, meta</i>"]
+        SCHEMAS["schemas.py + dependencies.py<br/>descriptor.py + error_handlers.py"]
+    end
+
+    subgraph FAC["facade/ - casos de uso, sem terminal nem HTTP"]
+        IFAC["IngestionFacade<br/><i>ingest() e files() → IngestionReport</i>"]
+        QFAC["QueryFacade<br/><i>ask(question, conversation, k) → Answer</i><br/><i>aplica a janela e calcula refused</i>"]
+    end
+
+    subgraph SVC["service/ - uma responsabilidade cada"]
+        HEALTH["HealthChecker"]
+        CHUNK["ChunkingService"]
+        REWRITE["QueryRewriteService<br/><i>decide() → RewriteDecision</i>"]
+        RETR["RetrievalService<br/><i>dono de k e do require_index() que origina o 409</i>"]
+        PROMPT["PromptBuilder<br/><i>numera de 1 a k e injeta ESCAPE_PHRASE</i>"]
+        GEN["GenerationService<br/><i>Protocol, dois chamadores: reescrita e resposta</i>"]
+        CITE["CitationResolver<br/><i>resolve() → citations + unresolved_labels</i>"]
+    end
+
+    subgraph REPO["repository/ - fronteiras externas, Protocol"]
+        READER["DocumentReader<br/><i>pypdf sobre pdfs/*.pdf</i>"]
+        VEC["VectorRepository<br/><i>QdrantVectorRepository e ChromaVectorRepository</i><br/><i>normaliza página 1-based e distância</i>"]
+    end
+
+    subgraph PRES["presenter/ - únicos que escrevem"]
+        REP["ConsoleReporter<br/><i>stdout resultado, stderr diagnóstico</i>"]
+        JSONP["JsonPresenter<br/><i>omite campo, nunca emite null</i>"]
+    end
+
+    subgraph BASE["base - folhas do grafo"]
+        MODELS["domain.models<br/><i>Turn, Conversation, SearchHit, Citation,<br/>RewriteDecision, Answer, IngestionReport</i>"]
+        CFG["config<br/><i>RagProperties</i>"]
+        EXC["exceptions<br/><i>RagException e derivadas</i>"]
+    end
+
+    ING --> IFAC & HEALTH & REP & CFG & EXC
+    ASK --> QFAC & HEALTH & REP & CFG & EXC
+    CHAT --> QFAC & HEALTH & REP & CFG & EXC
+    SERVE --> APP
+
+    APP --> SCHEMAS & IFAC & QFAC & JSONP & HEALTH & CFG & EXC
+    SCHEMAS --> MODELS & EXC
+
+    IFAC --> READER & CHUNK & VEC & MODELS & EXC
+    QFAC --> REWRITE & RETR & PROMPT & GEN & CITE & MODELS & EXC
+
+    REWRITE --> GEN & MODELS & EXC
+    RETR --> VEC & MODELS & EXC
+    PROMPT --> MODELS
+    CITE --> MODELS
+    GEN --> EXC
+    CHUNK --> EXC
+    READER --> MODELS & EXC
+    VEC --> MODELS & EXC
+    HEALTH --> VEC & CFG & EXC
+    REP --> MODELS
+    JSONP --> MODELS
+    CFG --> EXC
+
+    %% Nenhuma seta sobe: entrypoint → api → facade → service → repository → domain.
+    %% Nenhuma camada abaixo do entrypoint escreve em stdout ou chama sys.exit() (invariante 7).
+    %% Não existe ConversationMemory (ADR-003): Conversation é objeto de valor em domain.
+
+    classDef root fill:#1a3a52,stroke:#4a90d9,color:#fff
+    classDef api fill:#22405e,stroke:#5aa0e0,color:#fff
+    classDef fac fill:#2a3a5a,stroke:#6a90d9,color:#fff
+    classDef svc fill:#1a4a2e,stroke:#4ad98a,color:#fff
+    classDef repo fill:#3a2a4a,stroke:#a97ad9,color:#fff
+    classDef pres fill:#4a2a3a,stroke:#d97aa9,color:#fff
+    classDef base fill:#4a3a1a,stroke:#d9a94a,color:#fff
+    class ING,ASK,CHAT,SERVE root
+    class APP,SCHEMAS api
+    class IFAC,QFAC fac
+    class HEALTH,CHUNK,REWRITE,RETR,PROMPT,GEN,CITE svc
+    class READER,VEC repo
+    class REP,JSONP pres
+    class MODELS,CFG,EXC base

@@ -3,6 +3,17 @@
 Referência rápida para os projetos Python desta trilha de estudo de RAG. Vale para o
 Projeto 1 e para os Projetos 2 a 7.
 
+Vive no workspace, não dentro de um projeto, pelo mesmo motivo da
+[guideline de arquitetura em camadas](arquitetura-em-camadas.md): cópia diverge na
+primeira alteração. Promovida de `rag-01-fundamentos-pdf/docs/guidelines/` em 27/07/2026,
+quando o Projeto 2 passou a precisar dela — o texto já se declarava válido para os
+Projetos 1 a 7, então a cópia nunca chegou a existir.
+
+**O que é transversal e o que é de cada projeto:** este documento define princípios,
+convenções e ferramentas. As versões de biblioteca de cada projeto vivem no
+`requirements.txt` dele — a seção "Project Stack" abaixo é o denominador comum, não o
+lock de nenhum projeto.
+
 Ambiente-alvo: **Python 3.12.3** (o instalado). A versão estável mais recente da
 linguagem é a 3.14.6, de junho/2026; a 3.15 está em beta e sai em outubro/2026. A 3.12
 segue recebendo correções de segurança e é totalmente adequada — nada nesta trilha exige
@@ -1545,9 +1556,16 @@ de métrica gera uma série temporal nova por consulta e derruba qualquer coleto
 - [py-spy](https://github.com/benfred/py-spy) · [memray](https://github.com/bloomberg/memray)
 - [locust](https://locust.cloud/)
 
-### Stack deste projeto
+### Stack da trilha
 - [LangChain (Python)](https://docs.langchain.com/oss/python/) · [migração v1](https://docs.langchain.com/oss/python/migrate/langchain-v1)
 - [Pydantic](https://docs.pydantic.dev/) · [structlog](https://www.structlog.org/)
+- [FastAPI](https://fastapi.tiangolo.com/) · [uvicorn](https://www.uvicorn.org/) — projetos que expõem o contrato HTTP
+
+### Vector stores da trilha
+Um por projeto, de propósito. Ao comparar dois, leia os adaptadores em `repository/`,
+não o fluxo — o `Protocol VectorRepository` esconde exatamente a diferença que interessa.
+- [Chroma](https://docs.trychroma.com/) — Projeto 1
+- [Qdrant](https://qdrant.tech/documentation/) · [langchain-qdrant](https://python.langchain.com/docs/integrations/vectorstores/qdrant/) — Projeto 2
 
 ### Comunidade
 - [Python Discourse](https://discuss.python.org/)

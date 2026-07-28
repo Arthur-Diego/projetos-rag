@@ -11,7 +11,9 @@ Todo o contexto deste projeto vive em `docs/`. Não há contexto em `contexts/`,
 
 - Gitflow: `docs/gitflow.md` (obrigatório antes de qualquer commit)
 - PRD: `docs/prd.md`
-- Guidelines: `docs/guidelines/python-development-guidelines.md` (seguir sempre)
+- Guidelines: `../docs/guidelines/python-development-guidelines.md` (workspace, seguir
+  sempre). Ver `docs/guidelines/README.md` — a guideline foi promovida ao workspace em
+  27/07/2026, quando o Projeto 2 passou a precisar dela.
 - Domínios: `docs/domains/rag/hld.md` (ler antes de mexer no domínio)
 - FDDs: `docs/domains/rag/features/` (fonte de verdade de comportamento)
 - Diagramas: `docs/domains/rag/diagrams/{mermaid,c4}/`
