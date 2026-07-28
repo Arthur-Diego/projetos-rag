@@ -35,8 +35,8 @@ nome e prazo: a API de rerank hospedada, que é o exercício 2 do guia. Com o
 
 from typing import Protocol
 
-from ..domain.models import Provenance, SearchHit
-from ..exceptions import ServiceUnavailableException
+from ...domain.models import Provenance, SearchHit
+from ...exceptions import ServiceUnavailableException
 
 #: Modelos carregados, por nome. **Cache de PROCESSO, e ele não é opcional.**
 #:

@@ -7,8 +7,10 @@ das perguntas factuais recebia recusa mesmo havendo passagem que as sustentava, 
 
 O guia da trilha inteira está em `../README.md`, seção "Projeto 3".
 
-> **Estado: terreno documentado, sem código ainda.** HLD, guidelines e seis ADRs prontos.
-> O código nasce na primeira feature, conduzida pelo `dd-feature`.
+> **Estado: funil implementado e medido contra Elasticsearch real.** 107 testes, mypy
+> limpo. A tabela de medição existe e está em `docs/operations/README.md`, junto com as
+> quatro pendências de validação. Leia-a antes de tirar conclusões sobre busca híbrida:
+> **neste corpus a densa pura ainda ganha**, e o motivo está documentado.
 
 ## Documentação
 
@@ -46,6 +48,7 @@ Todo o contexto deste projeto vive em `docs/`. Não há contexto em `contexts/`,
 | 005 | Contrato compartilhado evoluído para 1.2.0, aditivo, com `distance` depreciado |
 | 006 | Buscas densa e BM25 em sequência, com paralelismo como decisão pendente |
 | 007 | `RetrievalService` devolve resultado com métrica; a facade deixa de cronometrar |
+| 008 | O funil mora em `rag/service/retrieval/`, pacote próprio dentro de `service/` |
 
 Os ADRs do `rag-01-fundamentos-pdf` e do `rag-02-conversacional-citacoes` são **precedente
 conceitual, não vínculo**: valem para aqueles diretórios. Decisão herdada precisa de ADR
@@ -71,6 +74,12 @@ próprio aqui.
 - **Reranking pode PIORAR o resultado em alguns corpora.** No BEIR a variância vai de −26%
   a +47%. As três configurações da tabela existem para isolar isso; se piorar, é resultado
   válido do projeto, não defeito a esconder.
+- **O funil vive em `rag/service/retrieval/`** (ADR-008), e não solto em `service/`.
+  Ele é a única coisa que muda de projeto para projeto na trilha, então agrupá-lo faz
+  "o que este projeto tem de diferente" caber num diretório. **`query_rewrite_service`
+  fica FORA**, apesar do sufixo: é o estágio da pergunta, não o da recuperação, e o
+  funil recebe uma query já resolvida. Os repositórios também ficam fora: a fronteira
+  deles é de camada, não de assunto.
 - **O `RetrievalService` orquestra e não calcula** (ADR-003). Ele é dono de `candidates`,
   `rrf_k` e `top_n`, dispara os dois repositórios, entrega os rankings à fusão e passa o
   resultado ao rerank. A matemática do RRF mora no `FusionService`.

@@ -22,8 +22,8 @@ from conftest import (  # noqa: E402
 
 from rag.domain.models import SearchHit  # noqa: E402
 from rag.exceptions import InvalidParameterException  # noqa: E402
-from rag.service.fusion_service import FusionService  # noqa: E402
-from rag.service.retrieval_service import RetrievalService  # noqa: E402
+from rag.service.retrieval.fusion_service import FusionService  # noqa: E402
+from rag.service.retrieval.retrieval_service import RetrievalService  # noqa: E402
 
 
 def hit(doc_id: str, page: int = 1) -> SearchHit:

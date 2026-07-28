@@ -28,7 +28,7 @@ prompt, e só depois da geração.
 
 from time import perf_counter
 
-from ..config import (
+from ...config import (
     DEFAULT_CANDIDATES,
     DEFAULT_HYBRID,
     DEFAULT_K,
@@ -38,10 +38,10 @@ from ..config import (
     MAX_K,
     MAX_RRF_K,
 )
-from ..domain.models import PATH_DENSE, PATH_KEYWORD, RetrievalResult, SearchHit
-from ..exceptions import EmptyIndexException, InvalidParameterException
-from ..repository.keyword_repository import KeywordRepository
-from ..repository.vector_repository import VectorRepository
+from ...domain.models import PATH_DENSE, PATH_KEYWORD, RetrievalResult, SearchHit
+from ...exceptions import EmptyIndexException, InvalidParameterException
+from ...repository.keyword_repository import KeywordRepository
+from ...repository.vector_repository import VectorRepository
 from .fusion_service import FusionService
 from .rerank_service import RerankService
 

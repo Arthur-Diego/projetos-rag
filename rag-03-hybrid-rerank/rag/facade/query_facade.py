@@ -28,7 +28,7 @@ from ..service.citation_resolver import CitationResolver
 from ..service.generation_service import GenerationService
 from ..service.prompt_builder import ESCAPE_PHRASE, PromptBuilder
 from ..service.query_rewrite_service import QueryRewriteService
-from ..service.retrieval_service import RetrievalService
+from ..service.retrieval.retrieval_service import RetrievalService
 
 
 class QueryFacade:

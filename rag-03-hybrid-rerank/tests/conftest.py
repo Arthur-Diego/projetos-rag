@@ -25,8 +25,8 @@ from rag.facade.query_facade import QueryFacade  # noqa: E402
 from rag.service.citation_resolver import CitationResolver  # noqa: E402
 from rag.service.prompt_builder import ESCAPE_PHRASE, PromptBuilder  # noqa: E402
 from rag.service.query_rewrite_service import QueryRewriteService  # noqa: E402
-from rag.service.fusion_service import FusionService  # noqa: E402
-from rag.service.retrieval_service import RetrievalService  # noqa: E402
+from rag.service.retrieval.fusion_service import FusionService  # noqa: E402
+from rag.service.retrieval.retrieval_service import RetrievalService  # noqa: E402
 
 # Marcadores que distinguem os dois prompts. Copiados do início de cada template
 # de propósito: se um template mudar de abertura, o dublê passa a classificar

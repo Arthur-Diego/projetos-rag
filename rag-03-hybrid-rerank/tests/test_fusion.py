@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rag.domain.models import PATH_DENSE, PATH_KEYWORD, SearchHit  # noqa: E402
-from rag.service.fusion_service import FusionService  # noqa: E402
+from rag.service.retrieval.fusion_service import FusionService  # noqa: E402
 
 RRF_K = 60
 

@@ -39,10 +39,10 @@ from ..service.generation_service import (
     OpenAiGenerationService,
     create_embeddings,
 )
-from ..service.fusion_service import FusionService
+from ..service.retrieval.fusion_service import FusionService
 from ..service.health_checker import HealthChecker
 from ..service.prompt_builder import PromptBuilder
-from ..service.rerank_service import CrossEncoderRerankService, RerankService
+from ..service.retrieval.rerank_service import CrossEncoderRerankService, RerankService
 
 
 #: Clientes do Elasticsearch por endereço. Ver `_client`.

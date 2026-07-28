@@ -43,15 +43,15 @@ from rag.domain.models import Conversation  # noqa: E402
 from rag.repository.keyword_repository import ElasticKeywordRepository  # noqa: E402
 from rag.repository.vector_repository import ElasticVectorRepository  # noqa: E402
 from rag.service.citation_resolver import CitationResolver  # noqa: E402
-from rag.service.fusion_service import FusionService  # noqa: E402
+from rag.service.retrieval.fusion_service import FusionService  # noqa: E402
 from rag.service.generation_service import (  # noqa: E402
     OpenAiGenerationService,
     create_embeddings,
 )
 from rag.service.prompt_builder import PromptBuilder  # noqa: E402
 from rag.service.query_rewrite_service import QueryRewriteService  # noqa: E402
-from rag.service.rerank_service import CrossEncoderRerankService  # noqa: E402
-from rag.service.retrieval_service import RetrievalService  # noqa: E402
+from rag.service.retrieval.rerank_service import CrossEncoderRerankService  # noqa: E402
+from rag.service.retrieval.retrieval_service import RetrievalService  # noqa: E402
 from rag.facade.query_facade import QueryFacade  # noqa: E402
 
 #: As três colunas da tabela. São combinações dos MESMOS estágios: o caminho

@@ -28,7 +28,7 @@ fundir à mão é o entendimento que o projeto existe para produzir, e mantém a
 estratégia de fusão independente de onde os dados estão guardados.
 """
 
-from ..domain.models import PATH_DENSE, PATH_KEYWORD, Provenance, SearchHit
+from ...domain.models import PATH_DENSE, PATH_KEYWORD, Provenance, SearchHit
 
 #: Chave de identidade de um trecho, para deduplicação.
 _Identity = tuple[str, int, str] | str

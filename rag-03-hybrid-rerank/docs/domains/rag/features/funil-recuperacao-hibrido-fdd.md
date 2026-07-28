@@ -47,8 +47,8 @@ citação. Não toca autenticação (não existe), nem persistência de conversa
 - Um usuário por vez. Concorrência não é caso tratado, e isso está registrado.
 - A máquina não tem GPU. Todo o custo de reordenação é de processador comum.
 
-**Restrições explícitas.** Os sete ADRs do projeto (`docs/adrs/generated/RAG/`) e os quatro
-ADRs de produto do PRD são vinculantes.
+**Restrições explícitas.** Os oito ADRs do projeto (`docs/adrs/generated/RAG/`) e os
+quatro ADRs de produto do PRD são vinculantes.
 
 ---
 
@@ -529,11 +529,11 @@ trecho sai da máquina no estágio de rerank, porque ele roda local.
 | Ordem | Etapa | Depende de | Componentes e arquivos prováveis | Critérios que fecha |
 | --- | --- | --- | --- | --- |
 | 1 | Fundação de domínio e configuração | - | `rag/domain/models.py` (`SearchHit` com `score` e `provenance`, `Provenance`, `RetrievalResult`, `Answer` com os quatro tempos), `rag/config.py` (constantes `Final` e faixas novas, propriedades do Elasticsearch), `rag/exceptions.py` (`InvalidIndexMappingException`) | 5 (parcial) |
-| 2 | Fusão RRF | 1 | `rag/service/fusion_service.py`, `tests/test_fusion.py` | 1, 2, 3 |
+| 2 | Fusão RRF | 1 | `rag/service/retrieval/fusion_service.py`, `tests/test_fusion.py` | 1, 2, 3 |
 | 3 | Infraestrutura e mapping | 1 | `docker-compose.yml` (Elasticsearch com healthcheck e tag fixa), `.env.example`, `requirements.txt` | - |
 | 4 | Adaptadores de busca | 1, 3 | `rag/repository/vector_repository.py` (kNN, mapping explícito no `recreate`), `rag/repository/keyword_repository.py` (BM25) | 7 |
-| 5 | Reranking | 1 | `rag/service/rerank_service.py` (`Protocol` mais implementação local), `tests/test_rerank.py` | 4 |
-| 6 | Funil no `RetrievalService` | 2, 4, 5 | `rag/service/retrieval_service.py`, `tests/test_retrieval.py`, `tests/conftest.py` (dublês novos: repositório léxico, reranker inversor, e um `FakeVectorRepository` com listas distintas por ramo) | 4, 5, 6 |
+| 5 | Reranking | 1 | `rag/service/retrieval/rerank_service.py` (`Protocol` mais implementação local), `tests/test_rerank.py` | 4 |
+| 6 | Funil no `RetrievalService` | 2, 4, 5 | `rag/service/retrieval/retrieval_service.py`, `tests/test_retrieval.py`, `tests/conftest.py` (dublês novos: repositório léxico, reranker inversor, e um `FakeVectorRepository` com listas distintas por ramo) | 4, 5, 6 |
 | 7 | Facade e apresentadores | 6 | `rag/facade/query_facade.py` (deixa de cronometrar), `rag/presenter/json_presenter.py`, `rag/presenter/console_reporter.py` (rótulo por campo preenchido) | 6 |
 | 8 | Saúde e matriz de erros | 4, 7 | `rag/service/health_checker.py` (`/_cluster/health` e conferência de mapping), `rag/api/error_handlers.py`, `rag/repository/*` (método novo no `Protocol` para expor o mapping) | 9, 10 |
 | 9 | Camada HTTP e descoberta | 7, 8 | `rag/api/descriptor.py`, `rag/api/routes/ask.py`, `rag/api/dependencies.py` (provedor de reranker com escopo de processo) | 5, 6 |

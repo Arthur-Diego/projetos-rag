@@ -42,9 +42,9 @@ from rag.service.citation_resolver import CitationResolver
 from rag.service.generation_service import OpenAiGenerationService, create_embeddings
 from rag.service.prompt_builder import PromptBuilder
 from rag.service.query_rewrite_service import QueryRewriteService
-from rag.service.fusion_service import FusionService
-from rag.service.rerank_service import CrossEncoderRerankService
-from rag.service.retrieval_service import RetrievalService
+from rag.service.retrieval.fusion_service import FusionService
+from rag.service.retrieval.rerank_service import CrossEncoderRerankService
+from rag.service.retrieval.retrieval_service import RetrievalService
 
 
 def build_client(properties: RagProperties) -> Elasticsearch:

@@ -20,7 +20,7 @@ from ...exceptions import InvalidParameterException
 from ...facade.query_facade import QueryFacade
 from ...service.health_checker import HealthChecker
 from ...service.query_rewrite_service import QueryRewriteService
-from ...service.retrieval_service import RetrievalService
+from ...service.retrieval.retrieval_service import RetrievalService
 from ..dependencies import (
     CheckedRepository,
     Citations,
