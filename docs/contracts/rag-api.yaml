@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Contrato RAG compartilhado
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Contrato HTTP comum aos projetos da trilha. Um frontend que fale este contrato
     conversa com qualquer projeto sem conhecer nenhum deles.
@@ -15,6 +15,39 @@ info:
     Regra de evolução: **acrescente campos opcionais, nunca altere os obrigatórios.**
     Um projeto que precise mudar `POST /ask` está pedindo uma versão nova do contrato,
     não uma customização.
+
+    ## 1.2.0 — busca híbrida e custo por estágio
+
+    Campos opcionais novos, e **um relaxamento declarado**. Origem:
+    `rag-03-hybrid-rerank/docs/adrs/generated/RAG/ADR-005`.
+
+    O que motiva: um projeto passou a recuperar por dois caminhos independentes
+    (semântico e léxico), fundi-los e reordenar o resultado. Isso quebra duas
+    suposições que 1.0.0 e 1.1.0 podiam fazer.
+
+    - **`hits[].score`**, opcional. Pontuação final de ordenação, onde MAIOR é melhor.
+      Convive com `distance`, que continua sendo distância e onde MENOR é melhor. Os
+      dois campos existem separados porque têm sentidos OPOSTOS: escrever pontuação no
+      campo de distância inverteria a leitura de quem exibe "o mais próximo" usando o
+      mínimo, sem erro nenhum.
+    - **`hits[].provenance`**, opcional. De qual caminho o trecho veio, em que posição
+      ficou em cada um, e o que a fusão e a reordenação fizeram com ele. É o que torna a
+      ordem final explicável em vez de mágica.
+    - **`timings.dense_s`, `keyword_s`, `fusion_s` e `rerank_s`**, opcionais. Decompõem
+      `search_s`, que MANTÉM o significado de total do estágio de recuperação. Quem
+      somar os cinco conta a recuperação duas vezes.
+    - **`GET /health` ganha o status 409** e o campo `text_field_analyzed`. Um índice
+      pode estar no ar, populado, e ainda assim inutilizável para busca léxica.
+
+    **O relaxamento, declarado porque não é aditivo:** `distance` sai de `required` em
+    `SearchHit`. Um trecho encontrado APENAS por busca léxica não tem distância nenhuma;
+    BM25 não mede distância. Manter o campo obrigatório exigiria inventar um valor, e um
+    número inventado num campo que a interface usa para ordenar é pior que a ausência.
+
+    O campo continua sendo emitido sempre que existe: todo trecho que passou pelo
+    caminho semântico o carrega, em qualquer configuração. Projetos que só fazem busca
+    densa (`rag-01`, `rag-02`) o emitem em 100 por cento dos hits e não mudam uma linha.
+    Consumidores devem tratá-lo como opcional a partir desta versão.
 
     ## 1.1.0 — conversa e procedência
 
@@ -67,6 +100,23 @@ paths:
                   indexed_chunks: { type: integer, example: 617 }
                   embedding_model: { type: string, example: text-embedding-3-small }
                   embedding_dimensions: { type: integer, example: 1536 }
+                  text_field_analyzed:
+                    type: boolean
+                    description: |
+                      Opcional, desde 1.2.0. O campo de texto do índice está preparado
+                      para busca por termos. `false` significa que a busca léxica não
+                      encontra nada, **sem erro nenhum**: o índice responde, está
+                      populado, e metade de um funil híbrido está morta. Ausente em
+                      projetos que não fazem busca léxica.
+        "409":
+          description: |
+            Índice inutilizável. Desde 1.2.0. O serviço está no ar e o índice existe, mas
+            precisa ser reconstruído: ou está vazio, ou foi criado com um mapeamento que
+            não serve. O código dentro de `Problem` distingue os casos, e distingue
+            porque as receitas são diferentes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "503":
           description: Dependência externa fora do ar
           content:
@@ -260,15 +310,72 @@ components:
 
     SearchHit:
       type: object
-      required: [source, distance]
+      required: [source]
       description: |
-        Um trecho recuperado. `distance` é DISTÂNCIA: menor é mais próximo.
-        Chamar de score inverteria a leitura na interface.
+        Um trecho recuperado.
+
+        **Duas escalas OPOSTAS convivem aqui, e confundi-las é defeito silencioso.**
+
+        `distance` é DISTÂNCIA: menor é mais próximo. `score` é PONTUAÇÃO: maior é
+        melhor. Escrever pontuação no campo de distância inverteria a leitura de
+        qualquer cliente que exiba "o mais próximo" usando o mínimo. Por isso são
+        campos separados, e nunca o mesmo.
+
+        `distance` saiu de `required` em 1.2.0: um trecho encontrado apenas por busca
+        léxica não tem distância, porque BM25 não mede distância nenhuma. Ele continua
+        presente sempre que o trecho passou pelo caminho semântico.
       properties:
         source: { type: string, example: harry-potter.pdf }
         page: { type: integer, description: Numerada a partir de 1, para humanos }
-        distance: { type: number, format: float, example: 0.875 }
+        distance:
+          type: number
+          format: float
+          example: 0.875
+          description: |
+            Distância no espaço vetorial: MENOR é mais próximo. Ausente quando o trecho
+            veio apenas da busca léxica.
+        score:
+          type: number
+          format: float
+          example: 8.42
+          description: |
+            Opcional, desde 1.2.0. Pontuação final de ordenação: MAIOR é melhor. Carrega
+            o valor da reordenação quando ela rodou, e o da fusão quando não rodou. Não é
+            comparável entre configurações diferentes, e não deve ser exibido como
+            percentual de nada.
+        provenance:
+          allOf: [{ $ref: "#/components/schemas/Provenance" }]
+          description: Opcional, desde 1.2.0.
         excerpt: { type: string, description: Trecho do texto, para exibição }
+
+    Provenance:
+      type: object
+      required: [paths]
+      description: |
+        Opcional, desde 1.2.0. Por onde o trecho passou e o que cada estágio fez com ele.
+
+        **Campo de caminho que não executou fica AUSENTE, nunca zero.** Zero em
+        `keyword_rank` significaria "a busca léxica achou e pôs em primeiro"; ausente
+        significa "ela não rodou, ou não achou este trecho". São afirmações diferentes.
+      properties:
+        paths:
+          type: array
+          description: Caminhos que encontraram este trecho.
+          items: { type: string, enum: [densa, bm25] }
+        dense_rank:
+          type: integer
+          description: Posição no ranking semântico, 1-based. Ausente se não veio de lá.
+        keyword_rank:
+          type: integer
+          description: Posição no ranking léxico, 1-based. Ausente se não veio de lá.
+        rrf_score:
+          type: number
+          format: float
+          description: Valor da fusão por posição. Adimensional; maior é melhor.
+        rerank_score:
+          type: number
+          format: float
+          description: Pontuação da reordenação. Ausente quando o estágio não rodou.
 
     Turn:
       type: object
@@ -374,7 +481,34 @@ components:
               description: |
                 Opcional, desde 1.1.0. O estágio de reescrita é uma chamada de LLM a mais
                 por turno; sem medi-lo em separado, o custo novo não é atribuível.
-            search_s: { type: number, format: float }
+            search_s:
+              type: number
+              format: float
+              description: |
+                TOTAL do estágio de recuperação. Os quatro campos abaixo o DECOMPÕEM, e
+                por isso quem somar os cinco conta a recuperação duas vezes.
+            dense_s:
+              type: number
+              format: float
+              description: |
+                Opcional, desde 1.2.0. Busca semântica. Inclui a chamada de embedding da
+                pergunta, que costuma dominar o custo do estágio.
+            keyword_s:
+              type: number
+              format: float
+              description: |
+                Opcional, desde 1.2.0. Busca léxica. **Ausente quando o caminho não
+                rodou**, nunca zero: zero significaria "rodou e foi instantâneo".
+            fusion_s:
+              type: number
+              format: float
+              description: Opcional, desde 1.2.0. Fusão dos rankings.
+            rerank_s:
+              type: number
+              format: float
+              description: |
+                Opcional, desde 1.2.0. Reordenação. **Ausente quando o estágio não
+                rodou.** Em processador comum costuma dominar o turno inteiro.
             generation_s: { type: number, format: float }
         meta:
           type: object
