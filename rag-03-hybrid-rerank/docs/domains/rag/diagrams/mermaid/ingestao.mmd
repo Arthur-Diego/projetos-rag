@@ -1,38 +1,45 @@
 %% Fluxo de ingestao (FDD secao 4, fluxo de ingestao)
-%% A ordem "conta, checa PDFs, destroi, cria com mapping explicito, le, grava" e fixa e testada:
-%% falha depois da destruicao deixa o indice vazio, cujo sintoma e evidente,
-%% e nunca desatualizado, cujo sintoma nao existe.
+%% Conferido contra rag/facade/ingestion_facade.py e rag/repository/vector_repository.py.
+%% A ordem "checa PDFs, conta o anterior, destroi, cria com mapping explicito, le, divide,
+%% embeda, grava" e fixa e testada: falha depois da destruicao deixa o indice VAZIO, cujo
+%% sintoma e evidente, e nunca desatualizado, cujo sintoma nao existe.
 flowchart TD
-    inicio(["ingest.py: IngestionFacade.ingest"])
+    inicio(["ingest.py ou POST /ingest: IngestionFacade.ingest"])
 
-    conta["1. Conta os trechos do índice anterior<br/>ANTES de destruir, para o relatório"]
-    checaPdfs{"2. Existe PDF em pdfs/*.pdf?<br/>glob não recursivo"}
-    semPdf["Encerra sem destruir o índice<br/>pdfs/fora-do-corpus/ nunca é indexado"]
+    checaPdfs{"1. Existe PDF em pdfs/*.pdf?<br/>glob NÃO recursivo, a única checagem antes de destruir"}
+    semPdf["422 EmptyCorpusException<br/>índice PRESERVADO, nada foi apagado<br/>pdfs/fora-do-corpus/ nunca é indexado"]
 
-    destroi["3. Destrói o índice existente"]
-    cria["4. Cria o índice com MAPPING EXPLÍCITO<br/>campo dense_vector com a dimensão declarada<br/>campo de texto analisado, analisador em português<br/>o mapping nasce no código e NUNCA é inferido pelo motor"]
+    subgraph recriacao["2. VectorRepository.recreate, uma operação só"]
+        direction TB
+        conta["2a. Conta os trechos do índice anterior<br/>ANTES de destruir, para o relatório"]
+        destroi["2b. Destrói o índice existente, quando existe"]
+        cria["2c. Cria o índice com MAPPING EXPLÍCITO<br/>campo de texto: type text, analisador brazilian<br/>campo de vetor: dense_vector, dims declarada, similarity cosine<br/>fonte como keyword e página como integer<br/>o mapping nasce no CÓDIGO e nunca é inferido pelo motor"]
+        conta --> destroi
+        destroi --> cria
+    end
 
-    le["5. DocumentReader lê as páginas<br/>numa passada, páginas 1-based e contagem de descartes"]
-    divide["6. ChunkingService divide as páginas em trechos"]
-    embeda["7. Embeda os trechos<br/>API de embeddings da OpenAI"]
-    grava["8. Grava um documento por chunk<br/>mesmo documento carrega vetor, texto analisado, fonte e página"]
+    le["3. DocumentReader.read lê as páginas numa passada<br/>páginas 1-based e contagem de descartes"]
+    temTexto{"4. Alguma página rendeu texto?"}
+    semTexto["422 NoExtractableTextException<br/>índice ficou VAZIO, de propósito<br/>quase sempre é PDF escaneado, e OCR está fora de escopo"]
 
-    relatorio["Relatório de ingestão<br/>páginas, descartes, trechos, trechos do índice anterior,<br/>parâmetros de divisão e tempo"]
-    fim(["Índice pronto para os dois caminhos de busca"])
+    divide["5. ChunkingService.split divide as páginas em trechos"]
+    grava["6. VectorRepository.add<br/>uma chamada de embedding para o LOTE inteiro<br/>e um documento por chunk: vetor, texto analisado, fonte e página<br/>no MESMO documento, ADR-001"]
 
-    inicio --> conta
-    conta --> checaPdfs
+    relatorio["IngestionReport<br/>páginas, descartes, trechos, trechos do índice anterior,<br/>chunk_size, chunk_overlap e tempo"]
+    fim(["Índice pronto para os DOIS caminhos de busca"])
+
+    inicio --> checaPdfs
     checaPdfs -. "não" .-> semPdf
-    checaPdfs -- "sim" --> destroi
-    destroi --> cria
+    checaPdfs -- "sim" --> conta
     cria --> le
-    le --> divide
-    divide --> embeda
-    embeda --> grava
+    le --> temTexto
+    temTexto -. "nenhuma" .-> semTexto
+    temTexto -- "sim" --> divide
+    divide --> grava
     grava --> relatorio
     relatorio --> fim
 
-    alerta["Risco mais sério do projeto:<br/>mapping inferido faz o BM25 degradar em silêncio.<br/>Sem mapping explícito, metade do funil para de funcionar sem erro nenhum."]
+    alerta["Risco mais sério do projeto:<br/>mapping inferido faz o BM25 degradar EM SILÊNCIO.<br/>Se o campo de texto virar keyword, metade do funil para de funcionar<br/>sem erro nenhum, e a conclusão vira 'a híbrida não ajudou'<br/>quando a híbrida nunca rodou.<br/>Guardas: critério 7 (inspeção do mapping), critério 8 (fumaça do BM25)<br/>e HealthChecker.check_mapping (critério 9)."]
     cria -.-> alerta
 
     classDef critico fill:#fff3bf,stroke:#bf8700,stroke-width:3px,color:#111
@@ -41,6 +48,6 @@ flowchart TD
     classDef nota fill:#ffe9e9,stroke:#cf222e,stroke-dasharray: 4 4,color:#111
 
     class cria critico
-    class conta,destroi,le,divide,embeda,grava,relatorio passo
-    class semPdf desvio
+    class conta,destroi,le,divide,grava,relatorio passo
+    class semPdf,semTexto desvio
     class alerta nota

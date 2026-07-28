@@ -114,7 +114,7 @@ ela mesma o estágio de busca, e `retrieve()` devolve uma lista sem canal para t
 
 O que vale é a afirmação mais estreita: **a `QueryFacade` não muda em orquestração.** Ela
 continua chamando os mesmos estágios, na mesma ordem, sem saber que a recuperação virou
-funil. O que muda nela é transporte de métrica: ela deixa de cronometrar um estágio que o
+funil. O que muda nela é transporte de métrica: ela deixa de cronometrar o INTERIOR de um estágio que o
 serviço passou a medir por dentro. Isso continua sendo evidência de que as camadas
 aguentaram, e é uma evidência honesta em vez de uma que se escreveu antes de ler o código.
 
@@ -180,7 +180,7 @@ listados apenas quando mudam ou quando o funil depende deles.
 | Componente | Responsabilidades | Dependências |
 | --- | --- | --- |
 | `IngestionFacade` | Caso de uso de indexação. Inalterado em forma; muda apenas o repositório que recebe os chunks. | `DocumentReader`, `ChunkingService`, `VectorRepository` |
-| `QueryFacade` | Caso de uso de consulta. **Inalterada em orquestração**, alterada em transporte de métrica (ADR-007): continua chamando os mesmos estágios na mesma ordem, sem saber que a recuperação virou funil, mas deixa de cronometrar a busca e passa a repassar os tempos que o `RetrievalService` mediu por dentro. | `QueryRewriteService`, `RetrievalService`, `PromptBuilder`, `GenerationService`, `CitationResolver` |
+| `QueryFacade` | Caso de uso de consulta. **Inalterada em orquestração**, alterada em transporte de métrica (ADR-007): continua chamando os mesmos estágios na mesma ordem, sem saber que a recuperação virou funil, mas deixa de cronometrar o INTERIOR da busca e passa a repassar os tempos que o `RetrievalService` mediu por dentro. Ela continua medindo `search_s`, que é o total do estágio. | `QueryRewriteService`, `RetrievalService`, `PromptBuilder`, `GenerationService`, `CitationResolver` |
 | `RetrievalService` | Política de recuperação, agora do funil inteiro: dono de `k`, `candidates` e `rrf_k`, da validação de faixa e do `require_index()` que origina o 409 no `/ask`. Dispara os dois caminhos, entrega os rankings à fusão, passa os candidatos ao rerank e devolve `RetrievalResult` com métrica. Não implementa fusão nem pontuação, e **fala com serviços, nunca com repositórios** (ADR-009). Expõe `keyword_only()`, diagnóstico do critério de aceite 8. | **`DenseSearchService`**, **`KeywordSearchService`**, **`FusionService`**, **`RerankService`** |
 | `VectorRepository` | Busca kNN densa sobre o índice. `Protocol` com adaptador Elasticsearch. Nada do vocabulário do Elasticsearch atravessa a fronteira. | Elasticsearch |
 | **`KeywordRepository`** | Busca BM25 sobre o **mesmo** índice e o mesmo documento. `Protocol` com adaptador Elasticsearch. Nominalmente previsto na seção 5 da guideline do workspace. | Elasticsearch |
@@ -509,7 +509,7 @@ ADRs associados (a escrever no Passo 4 do `dd-greenfield`, todos decididos nesta
   depreciado em vez de removido.
 - ADR-006, buscas densa e BM25 executadas em sequência, com paralelismo registrado como
   decisão pendente.
-- ADR-007, `RetrievalService` devolve resultado com métrica e a facade deixa de cronometrar.
+- ADR-007, `RetrievalService` devolve resultado com métrica e a facade para de cronometrar o interior do estágio.
   **Corrige uma afirmação errada da versão 1.0.0 deste documento**, escrita a partir do
   desenho antes de o código do Projeto 2 ser lido.
 - ADR-008, o funil mora em `rag/service/retrieval/`, pacote próprio dentro de `service/`.

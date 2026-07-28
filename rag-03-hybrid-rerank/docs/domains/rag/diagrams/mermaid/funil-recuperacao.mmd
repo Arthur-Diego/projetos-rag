@@ -1,35 +1,51 @@
 %% Funil de recuperacao hibrido, dono: RetrievalService (FDD secao 4, fluxo principal)
-%% Linha cheia = caminho padrao (hibrida=true, rerank=true)
-%% Linha tracejada e no pontilhado = estagio condicional ou desvio
+%% Conferido contra rag/service/retrieval/ apos o ADR-008 (pacote proprio)
+%% e o ADR-009 (o RetrievalService fala com servicos, nunca com repositorios).
+%% Linha cheia = caminho padrao (hibrida=true, rerank=true).
+%% Linha tracejada = estagio condicional, desvio ou erro.
 flowchart TD
     inicio(["Pergunta resolvida<br/>vinda do QueryRewriteService"])
-    valida{"RetrievalService valida faixas<br/>k, candidates e rrf_k<br/>e a relação k menor ou igual a candidates"}
-    erroFaixa["422 InvalidParameterException<br/>parâmetro, valor e faixa nomeados"]
+    valida{"RetrievalService valida no CONSTRUTOR<br/>k de 1 a 20, candidates de 1 a 50, rrf_k de 1 a 1000<br/>e a relação k menor ou igual a candidates"}
+    erroFaixa["422 InvalidParameterException<br/>nomeia parâmetro, valor e faixa"]
 
-    densa["Busca densa: VectorRepository.search<br/>embeda a pergunta e busca os candidates vizinhos mais próximos<br/>sempre executada<br/>tempo dense_s"]
+    subgraph caminhoDenso["Caminho denso, SEMPRE executado, tempo dense_s"]
+        direction TB
+        denseSvc["DenseSearchService.search<br/>DELEGA sem acrescentar política, ADR-009"]
+        vectorRepo["VectorRepository.search<br/>embeda a pergunta e busca os candidates vizinhos mais próximos"]
+        denseSvc --> vectorRepo
+    end
 
     checaHibrida{"hibrida ligado?<br/>padrão: true"}
-    bm25["Busca léxica: KeywordRepository.search<br/>os candidates melhores por BM25 sobre o mesmo índice<br/>ESTÁGIO CONDICIONAL<br/>tempo keyword_s"]
-    semBm25["Caminho BM25 pulado<br/>a fusão recebe um ranking só<br/>keyword_s fica ausente, nunca zero"]
 
-    fusao["FusionService.fuse<br/>RRF: soma de 1 / (rrf_k + posição + 1) por aparição<br/>padrão rrf_k = 60<br/>tempo fusion_s"]
-    unicos["Candidatos únicos<br/>deduplicados por identidade do documento<br/>ordenados pelo valor da fusão"]
+    subgraph caminhoLexico["Caminho léxico, CONDICIONAL, tempo keyword_s"]
+        direction TB
+        keywordSvc["KeywordSearchService.search<br/>DELEGA sem acrescentar política, ADR-009"]
+        keywordRepo["KeywordRepository.search<br/>os candidates melhores por BM25, sobre o MESMO índice<br/>não gasta chamada paga e não devolve distância"]
+        keywordSvc --> keywordRepo
+    end
+
+    semBm25["Caminho BM25 pulado<br/>a fusão recebe um ranking só, e o RRF sobre uma lista<br/>devolve a mesma ordem<br/>keyword_s fica AUSENTE, nunca zero"]
+
+    fusao["FusionService.fuse com rankings ROTULADOS<br/>RRF: soma de 1 / (rrf_k + posição + 1) por aparição<br/>padrão rrf_k = 60, tempo fusion_s<br/>função pura, sem dependência nenhuma"]
+    unicos["Candidatos únicos<br/>deduplicados por doc_id, a identidade do trecho no armazém<br/>nunca por prefixo de texto<br/>ordenados por score decrescente, empate pela ordem de aparição"]
 
     checaRerank{"rerank ligado?<br/>padrão: true"}
-    rerank["RerankService.rerank<br/>cross encoder local pontua cada par pergunta, candidato<br/>ESTÁGIO CONDICIONAL<br/>corta em k, tempo rerank_s"]
-    corteSimples["Corte simples dos fundidos em k<br/>rerank_s fica ausente, nunca zero"]
+    rerank["RerankService.rerank<br/>cross encoder local pontua cada par pergunta e candidato<br/>ESTÁGIO CONDICIONAL, corta em k, tempo rerank_s<br/>score passa a ser o do reordenador; o da fusão fica em provenance.rrf_score"]
+    corteSimples["Corte simples dos fundidos em k<br/>rerank_s fica AUSENTE, nunca zero"]
 
-    topk["Top k hits<br/>k padrão 4, máximo 20<br/>RetrievalResult com hits e os quatro tempos"]
+    topk["RetrievalResult<br/>top k hits, k padrão 4, mais dense_s, keyword_s, fusion_s e rerank_s"]
     numeracao["PromptBuilder numera o contexto<br/>nada reordena a partir daqui"]
     llm["GenerationService gera a resposta<br/>e o CitationResolver resolve os colchetes"]
 
+    diagnostico(["keyword_only, comando de DIAGNÓSTICO do critério de aceite 8<br/>busca só pelo caminho léxico e não é parâmetro de requisição"])
+
     inicio --> valida
     valida -. "fora de faixa" .-> erroFaixa
-    valida -- "válido" --> densa
-    densa --> checaHibrida
-    checaHibrida -- "sim, caminho padrão" --> bm25
+    valida -- "válido" --> denseSvc
+    vectorRepo --> checaHibrida
+    checaHibrida -- "sim, caminho padrão" --> keywordSvc
     checaHibrida -. "não" .-> semBm25
-    bm25 --> fusao
+    keywordRepo --> fusao
     semBm25 -. "ranking único" .-> fusao
     fusao --> unicos
     unicos --> checaRerank
@@ -39,13 +55,16 @@ flowchart TD
     corteSimples -. "fundidos cortados" .-> topk
     topk --> numeracao
     numeracao --> llm
+    diagnostico -. "atalho fora do funil" .-> keywordSvc
 
     classDef padrao fill:#e8f4ff,stroke:#1f6feb,stroke-width:2px,color:#111
+    classDef delega fill:#eef7ff,stroke:#1f6feb,stroke-width:2px,stroke-dasharray: 3 3,color:#111
     classDef condicional fill:#fff7e6,stroke:#bf8700,stroke-width:2px,stroke-dasharray: 6 4,color:#111
     classDef desvio fill:#f6f8fa,stroke:#8b949e,stroke-dasharray: 4 4,color:#111
     classDef erro fill:#ffe9e9,stroke:#cf222e,stroke-width:2px,color:#111
 
-    class densa,fusao,unicos,topk,numeracao,llm padrao
-    class bm25,rerank condicional
-    class semBm25,corteSimples desvio
+    class vectorRepo,fusao,unicos,topk,numeracao,llm padrao
+    class denseSvc,keywordSvc delega
+    class keywordRepo,rerank condicional
+    class semBm25,corteSimples,diagnostico desvio
     class erroFaixa erro

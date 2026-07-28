@@ -1,89 +1,110 @@
-%% Componentes por camada e dependencias (HLD, secao Componentes; FDD secoes 3, 5 e 11)
-%% Grafo estritamente descendente: entrypoint, facade, service, repository, domain
-%% Amarelo = componente NOVO deste projeto; azul = herdado do Projeto 2 e alterado; cinza = herdado inalterado
+%% Componentes por camada e dependencias (HLD, secao "Componentes e responsabilidades";
+%% FDD secoes 3, 5 e 11). Conferido contra rag/ apos os refactors do ADR-008 e do ADR-009.
+%% Grafo estritamente descendente: entrypoint, api, facade, service, repository, domain.
+%% Amarelo = componente NOVO deste projeto; azul = herdado do Projeto 2 e alterado;
+%% cinza = herdado inalterado; roxo = fora do processo.
 flowchart TD
-    subgraph camadaEntry["Camada entrypoint"]
+    subgraph camadaEntry["Camada entrypoint (raiz do projeto, fora de rag/)"]
         direction LR
         ingestPy["ingest.py"]
         askPy["ask.py"]
         chatPy["chat.py"]
         servePy["serve.py"]
-        composition["composition.py<br/>composition root"]
+        composition["composition.py<br/>composition root das CLIs<br/>não é camada, ADR-006 do Projeto 2"]
     end
 
-    subgraph camadaApi["Camada api"]
+    subgraph camadaApi["Camada api (rag/api/)"]
         direction LR
-        rotaAsk["routes/ask.py"]
-        dependencias["dependencies.py<br/>provedor do reranker com escopo de processo"]
-        descritor["descriptor.py<br/>publica hibrida, rerank, candidates e rrf_k"]
-        tratadores["error_handlers.py<br/>InvalidIndexMappingException antes do genérico"]
+        appApi["app.py<br/>fábrica do FastAPI, CORS e registro de rotas"]
+        rotas["routes/<br/>ask.py, ingest.py, meta.py"]
+        esquemas["schemas.py<br/>corpo das requisições"]
+        dependencias["dependencies.py<br/>container do FastAPI<br/>cliente do motor e reordenador em escopo de PROCESSO"]
+        descritor["descriptor.py<br/>publica hibrida, rerank, candidates e rrf_k<br/>padrões e tetos importados de config.py"]
+        tratadores["error_handlers.py<br/>lista ORDENADA de exceção para status<br/>InvalidIndexMappingException antes do tratador genérico"]
     end
 
-    subgraph camadaPresenter["Camada presenter"]
+    subgraph camadaPresenter["Camada presenter (rag/presenter/)"]
         direction LR
-        jsonPresenter["JsonPresenter<br/>score, provenance e os quatro tempos"]
-        consoleReporter["ConsoleReporter<br/>rótulo escolhido pelo campo preenchido"]
+        jsonPresenter["JsonPresenter<br/>contrato 1.2.0: score, provenance e os quatro tempos<br/>omite estágio não executado em vez de emitir zero<br/>NUNCA escreve pontuação no campo de distância"]
+        consoleReporter["ConsoleReporter<br/>uma linha de procedência por trecho, que pode trazer ao mesmo tempo<br/>densa #n | bm25 #n | rrf X | rerank Y | distância Z<br/>o invariante é que score e distance nunca dividem CAMPO"]
     end
 
-    subgraph camadaFacade["Camada facade"]
+    subgraph camadaFacade["Camada facade (rag/facade/)"]
         direction LR
-        queryFacade["QueryFacade<br/>inalterada em orquestração<br/>deixa de cronometrar a busca, ADR-007"]
+        queryFacade["QueryFacade<br/>inalterada em ORQUESTRAÇÃO, ADR-007<br/>continua medindo search_s, o total do estágio<br/>e repassa os quatro tempos que vêm no RetrievalResult"]
         ingestionFacade["IngestionFacade<br/>inalterada em forma"]
     end
 
-    subgraph camadaService["Camada service"]
+    subgraph camadaService["Camada service (rag/service/)"]
         direction LR
-        rewriteSvc["QueryRewriteService<br/>inalterado"]
-        retrievalSvc["RetrievalService<br/>reescrito: dono do funil de quatro etapas"]
-        fusionSvc["FusionService<br/>NOVO: RRF como função pura, sem dependência"]
-        rerankSvc["RerankService<br/>NOVO: Protocol mais cross encoder local"]
-        promptBuilder["PromptBuilder<br/>inalterado"]
+        subgraph pacoteFunil["Pacote do funil (rag/service/retrieval/), ADR-008"]
+            direction LR
+            retrievalSvc["RetrievalService<br/>dono da política: k, candidates, rrf_k e as faixas<br/>orquestra e NÃO calcula<br/>fala com SERVIÇOS, nunca com repositórios, ADR-009<br/>expõe keyword_only, diagnóstico do critério 8"]
+            denseSvc["DenseSearchService<br/>NOVO: encapsula o caminho denso<br/>DELEGA ao VectorRepository sem acrescentar política<br/>dois métodos: search e indexed_count"]
+            keywordSvc["KeywordSearchService<br/>NOVO: encapsula o caminho léxico<br/>DELEGA ao KeywordRepository sem acrescentar política<br/>um método só: o repositório denso é o dono do índice"]
+            fusionSvc["FusionService<br/>NOVO: RRF como função pura, sem dependência nenhuma<br/>recebe rankings ROTULADOS e deduplica por doc_id"]
+            rerankSvc["RerankService<br/>NOVO: Protocol mais CrossEncoderRerankService local<br/>modelo carregado uma vez por processo"]
+        end
+        rewriteSvc["QueryRewriteService<br/>inalterado, e fica FORA do pacote do funil:<br/>é o estágio da pergunta, não o da recuperação"]
+        promptBuilder["PromptBuilder<br/>inalterado, numera o contexto DEPOIS do funil"]
         generationSvc["GenerationService<br/>inalterado"]
-        citationResolver["CitationResolver<br/>inalterado"]
+        citationResolver["CitationResolver<br/>inalterado, citação por referência explícita"]
         chunkingSvc["ChunkingService<br/>inalterado"]
-        healthChecker["HealthChecker<br/>confere mapping do campo de texto e cluster health"]
+        healthChecker["HealthChecker<br/>check consulta /_cluster/health, nunca a raiz<br/>ganha check_mapping, e mantém check_dimensions"]
     end
 
-    subgraph camadaRepository["Camada repository"]
+    subgraph camadaRepository["Camada repository (rag/repository/)"]
         direction LR
-        vectorRepo["VectorRepository<br/>Protocol: kNN denso e mapping explícito no recreate"]
-        keywordRepo["KeywordRepository<br/>NOVO: Protocol de busca BM25 sobre o mesmo índice"]
+        vectorRepo["VectorRepository<br/>Protocol de seis métodos, adaptador Elasticsearch<br/>kNN denso, mapping EXPLÍCITO no recreate<br/>e text_field_analyzed"]
+        keywordRepo["KeywordRepository<br/>NOVO: Protocol de busca BM25<br/>mesmo índice e mesmo documento do caminho denso"]
         documentReader["DocumentReader<br/>inalterado, glob pdfs/*.pdf não recursivo"]
     end
 
-    subgraph camadaDomain["Camada domain"]
+    subgraph camadaDomain["Camada domain (rag/domain/)"]
         direction LR
-        searchHit["SearchHit<br/>ganha score e provenance"]
-        provenance["Provenance<br/>NOVO: paths, ranks, rrf_score e rerank_score"]
-        retrievalResult["RetrievalResult<br/>NOVO: hits e os quatro tempos opcionais"]
+        searchHit["SearchHit<br/>text, source, page, doc_id,<br/>distance, score, provenance<br/>doc_id é a chave de deduplicação da fusão<br/>e NÃO é emitido no JSON"]
+        provenance["Provenance<br/>NOVO: paths, dense_rank, keyword_rank,<br/>rrf_score e rerank_score"]
+        retrievalResult["RetrievalResult<br/>NOVO: hits mais dense_s, keyword_s,<br/>fusion_s e rerank_s, todos opcionais"]
         page["Page e Chunk<br/>inalterados"]
-        answer["Answer<br/>ganha os quatro tempos"]
+        answer["Answer<br/>ganha os quatro tempos opcionais"]
     end
 
     subgraph externos["Fora do processo"]
         direction LR
-        elastic["Elasticsearch<br/>mesmo índice para denso e BM25"]
-        openai["API de embeddings e chat da OpenAI"]
-        crossEncoder["sentence-transformers<br/>cross encoder local, um carregamento por processo"]
+        elastic["Elasticsearch<br/>um índice único para os dois caminhos"]
+        openai["API de embeddings e de chat da OpenAI"]
+        crossEncoder["sentence-transformers<br/>cross encoder local em CPU"]
     end
 
-    servePy --> rotaAsk
-    servePy --> descritor
-    servePy --> tratadores
-    rotaAsk --> dependencias
-    rotaAsk --> queryFacade
+    servePy --> appApi
+    appApi --> rotas
+    appApi --> tratadores
+    appApi --> descritor
+    rotas --> esquemas
+    rotas --> descritor
+    rotas --> dependencias
+    rotas --> queryFacade
+    rotas --> ingestionFacade
+    rotas --> healthChecker
+    dependencias --> healthChecker
+    dependencias --> denseSvc
+    dependencias --> keywordSvc
+    dependencias --> fusionSvc
     dependencias --> rerankSvc
-    dependencias --> retrievalSvc
-    descritor --> healthChecker
+    dependencias --> jsonPresenter
+    tratadores --> jsonPresenter
 
     askPy --> composition
     chatPy --> composition
     ingestPy --> composition
+    askPy --> healthChecker
+    chatPy --> healthChecker
+    ingestPy --> healthChecker
     composition --> queryFacade
     composition --> ingestionFacade
     askPy --> consoleReporter
     chatPy --> consoleReporter
-    servePy --> jsonPresenter
+    ingestPy --> consoleReporter
 
     queryFacade --> rewriteSvc
     queryFacade --> retrievalSvc
@@ -95,10 +116,12 @@ flowchart TD
     ingestionFacade --> vectorRepo
 
     rewriteSvc --> generationSvc
-    retrievalSvc --> vectorRepo
-    retrievalSvc --> keywordRepo
+    retrievalSvc --> denseSvc
+    retrievalSvc --> keywordSvc
     retrievalSvc --> fusionSvc
     retrievalSvc --> rerankSvc
+    denseSvc --> vectorRepo
+    keywordSvc --> keywordRepo
     healthChecker --> vectorRepo
     promptBuilder --> searchHit
     citationResolver --> searchHit
@@ -106,6 +129,7 @@ flowchart TD
     fusionSvc --> searchHit
     rerankSvc --> searchHit
     rerankSvc --> crossEncoder
+    retrievalSvc --> retrievalResult
 
     vectorRepo --> searchHit
     vectorRepo --> elastic
@@ -114,7 +138,6 @@ flowchart TD
     keywordRepo --> elastic
     documentReader --> page
 
-    retrievalSvc --> retrievalResult
     searchHit --> provenance
     jsonPresenter --> answer
     consoleReporter --> answer
@@ -124,7 +147,7 @@ flowchart TD
     classDef herdado fill:#f6f8fa,stroke:#8b949e,color:#111
     classDef externo fill:#f3e8ff,stroke:#8250df,stroke-width:2px,color:#111
 
-    class keywordRepo,fusionSvc,rerankSvc,retrievalResult,provenance novo
+    class keywordRepo,fusionSvc,rerankSvc,denseSvc,keywordSvc,retrievalResult,provenance novo
     class retrievalSvc,queryFacade,vectorRepo,healthChecker,searchHit,answer,jsonPresenter,consoleReporter,descritor,tratadores,dependencias alterado
-    class ingestionFacade,rewriteSvc,promptBuilder,generationSvc,citationResolver,chunkingSvc,documentReader,page,ingestPy,askPy,chatPy,servePy,composition,rotaAsk herdado
+    class ingestionFacade,rewriteSvc,promptBuilder,generationSvc,citationResolver,chunkingSvc,documentReader,page,ingestPy,askPy,chatPy,servePy,composition,rotas,appApi,esquemas herdado
     class elastic,openai,crossEncoder externo

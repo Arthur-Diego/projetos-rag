@@ -593,7 +593,7 @@ de corpus, âncora do `C1`, e logging estruturado.
 | 4 | Adaptadores de busca | 1, 3 | `rag/repository/vector_repository.py` (kNN, mapping explícito no `recreate`), `rag/repository/keyword_repository.py` (BM25) | 7 |
 | 5 | Reranking | 1 | `rag/service/retrieval/rerank_service.py` (`Protocol` mais implementação local), `tests/test_rerank.py` | 4 |
 | 6 | Funil no `RetrievalService` | 2, 4, 5 | `rag/service/retrieval/retrieval_service.py`, `tests/test_retrieval.py`, `tests/conftest.py` (dublês novos: repositório léxico, reranker inversor, e um `FakeVectorRepository` com listas distintas por ramo) | 4, 5, 6 |
-| 7 | Facade e apresentadores | 6 | `rag/facade/query_facade.py` (deixa de cronometrar), `rag/presenter/json_presenter.py`, `rag/presenter/console_reporter.py` (rótulo por campo preenchido) | 6 |
+| 7 | Facade e apresentadores | 6 | `rag/facade/query_facade.py` (para de cronometrar o interior do estágio), `rag/presenter/json_presenter.py`, `rag/presenter/console_reporter.py` (rótulo por campo preenchido) | 6 |
 | 8 | Saúde e matriz de erros | 4, 7 | `rag/service/health_checker.py` (`/_cluster/health` e conferência de mapping), `rag/api/error_handlers.py`, `rag/repository/*` (método novo no `Protocol` para expor o mapping) | 9, 10 |
 | 9 | Camada HTTP e descoberta | 7, 8 | `rag/api/descriptor.py`, `rag/api/routes/ask.py`, `rag/api/dependencies.py` (provedor de reranker com escopo de processo) | 5, 6 |
 | 10 | Contrato compartilhado | 9 | `../docs/contracts/rag-api.yaml` elevado a 1.2.0 | 12 |

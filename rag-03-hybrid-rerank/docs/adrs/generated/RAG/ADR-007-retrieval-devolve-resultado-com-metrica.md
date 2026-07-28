@@ -1,4 +1,4 @@
-# ADR-007: `RetrievalService` devolve resultado com métrica, e a facade deixa de cronometrar
+# ADR-007: `RetrievalService` devolve resultado com métrica, e a facade para de cronometrar o interior do estágio
 
 - **Status:** aceito
 - **Data:** 2026-07-28
@@ -33,13 +33,20 @@ HLD foi escrita a partir do desenho, antes de o arquivo ser lido.
 **A `QueryFacade` muda, e a afirmação do HLD é substituída por uma mais estreita e
 verdadeira: a facade não muda em orquestração.**
 
+*Precisão acrescentada em 28/07/2026, depois de a regeneração dos diagramas apontar que
+o título desta decisão exagerava:* a facade não para de cronometrar. Ela para de
+cronometrar **o que não consegue enxergar**.
+
 Concretamente:
 
 - `RetrievalService.retrieve()` passa a devolver um resultado composto, carregando os hits
   finais e os tempos de cada estágio interno do funil, em vez de apenas a lista.
 - `Answer` ganha os campos de tempo correspondentes.
-- `QueryFacade` **deixa de cronometrar** o estágio de busca. Ela repassa o que o serviço
-  mediu por dentro. Continua chamando os mesmos estágios, na mesma ordem, sem saber que a
+- `QueryFacade` **deixa de cronometrar o INTERIOR** do estágio de busca, e repassa o que o
+  serviço mediu por dentro. Ela **continua medindo `search_s`**, que é o total da
+  recuperação e mantém exatamente o significado que sempre teve. Cronometrar de fora uma
+  operação inteira é legítimo; o que não dá é cronometrar de fora as quatro etapas que
+  acontecem lá dentro. Continua chamando os mesmos estágios, na mesma ordem, sem saber que a
   recuperação virou funil.
 - `JsonPresenter` e `ConsoleReporter` passam a emitir os tempos novos.
 

@@ -13,9 +13,21 @@ package "facade/" {
   }
 }
 
-package "service/" {
+package "service/retrieval/" {
   class RetrievalService {
     retrieve(query: str) : RetrievalResult
+    keyword_only(query: str, k: int | None) : list[SearchHit]
+    require_index(collection: str) : int
+    indexed_count() : int
+  }
+
+  class DenseSearchService {
+    search(query: str, k: int) : list[SearchHit]
+    indexed_count() : int
+  }
+
+  class KeywordSearchService {
+    search(query: str, k: int) : list[SearchHit]
   }
 
   class FusionService {
@@ -25,13 +37,20 @@ package "service/" {
   interface RerankService <<Protocol>> {
     rerank(question: str, hits, top_n: int) : list[SearchHit]
   }
+
+  class CrossEncoderRerankService {
+    rerank(question: str, hits, top_n: int) : list[SearchHit]
+  }
 }
 
 package "repository/" {
   interface VectorRepository <<Protocol>> {
     search(query: str, k: int) : list[SearchHit]
-    recreate()
-    add()
+    recreate(dimensions: int) : int
+    add(chunks: list[Chunk])
+    count() : int
+    vector_size() : int | None
+    text_field_analyzed() : bool | None
   }
 
   interface KeywordRepository <<Protocol>> {
@@ -41,16 +60,17 @@ package "repository/" {
 
 package "domain/models.py" {
   class SearchHit <<struct>> {
+    text: str
     source: str
     page: int
-    excerpt: str
+    doc_id: str | None
     distance: float | None
     score: float | None
     provenance: Provenance | None
   }
 
   class Provenance <<struct>> {
-    paths: list[str]
+    paths: tuple[str, ...]
     dense_rank: int | None
     keyword_rank: int | None
     rrf_score: float | None
@@ -70,7 +90,8 @@ package "domain/models.py" {
     refused: bool
     hits: list[SearchHit]
     citations: list[Citation]
-    timings
+    rewrite_s / search_s / generation_s
+    dense_s / keyword_s / fusion_s / rerank_s
   }
 }
 
@@ -92,15 +113,23 @@ package "exceptions.py" {
 QueryFacade --> RetrievalService : retrieve(resolvida)
 QueryFacade ..> Answer : devolve
 
-RetrievalService --> VectorRepository : search(candidates)
-RetrievalService --> KeywordRepository : search(candidates)
+RetrievalService --> DenseSearchService : search(candidates)
+RetrievalService --> KeywordSearchService : search(candidates)
 RetrievalService --> FusionService : fuse(rankings, rrf_k)
 RetrievalService --> RerankService : rerank(pergunta, fundidos, k)
 RetrievalService ..> RetrievalResult : devolve
 RetrievalService ..> InvalidParameterException : levanta
+RetrievalService ..> EmptyIndexException : levanta
+
+CrossEncoderRerankService ..|> RerankService
+CrossEncoderRerankService ..> ServiceUnavailableException : levanta
+
+DenseSearchService --> VectorRepository : delega
+KeywordSearchService --> KeywordRepository : delega
 
 VectorRepository ..> SearchHit : devolve
 KeywordRepository ..> SearchHit : devolve
+FusionService ..> SearchHit : devolve com score e provenance
 RetrievalResult o-- SearchHit
 SearchHit *-- Provenance
 Answer o-- SearchHit
@@ -112,23 +141,38 @@ FusionService -[hidden]down- SearchHit
 note as NFUSAO
   Fusão
   • Soma 1 / (rrf_k + posição + 1)
-  • Deduplica por identidade do documento
+  • Rankings ROTULADOS: o nome do caminho viaja junto
   • Posição manda; escala não altera
   • Sem dependência: testável sem dublê
 end note
 
+note as NIDENTIDADE
+  Identidade do trecho
+  • doc_id é a chave de deduplicação da fusão
+  • Sem ele, cai para fonte, página e texto INTEIRO
+  • Nunca prefixo: [:200] funde trechos distintos
+  • Campo interno, não emitido no JSON
+end note
+
 note as NFUNIL
   Validações e execução
-  • candidates de 1 a 50, rrf_k de 1 a 1000
+  • candidates de 1 a 50, rrf_k de 1 a 1000, k até 20
   • k maior que candidates é 422
-  • O caminho denso sempre roda
-  • Caminho vazio não impede o outro
+  • Faixas validadas na CONSTRUÇÃO, não no uso
+  • O caminho denso sempre roda; vazio não impede o outro
+end note
+
+note as NREPASSE
+  Repasse consciente
+  • Os dois services delegam sem acrescentar política
+  • Existem para o pacote mostrar as quatro etapas
+  • O denso delega dois métodos; o léxico, um
 end note
 
 note as NTEMPO
   Custo atribuível
   • Um tempo por estágio, medido por quem executou
-  • Estágio não executado fica ausente, nunca zero
+  • Estágio não executado fica None, nunca zero
   • search_s continua sendo o total
 end note
 
@@ -136,36 +180,39 @@ note as NESCALA
   Escalas opostas, campos separados
   • score é o valor final: maior é melhor
   • Vem do rerank, ou da fusão sem ele
-  • distance mantido e depreciado
-  • Válido só sem híbrida e sem rerank
+  • distance mantido e depreciado: menor é melhor
+  • Os dois podem coexistir no hit, nunca no mesmo campo
 end note
 
 note as NRERANK
   Reordenação
-  • Local, em sentence-transformers, na CPU
-  • Carregado uma vez por processo
+  • Local, na CPU, modelo multilíngue mmarco-mMiniLMv2
+  • Carregado uma vez por processo, cache de módulo
   • Falha ao carregar é 503, nunca "sem rerank"
-  • Protocol abre a segunda implementação
+  • Preserva distance e provenance, acresce rerank_score
 end note
 
 note as NFRONTEIRA
   Fronteira
   • Dois adaptadores, um índice, um documento
   • Vocabulário do Elasticsearch não atravessa
-  • O Protocol expõe o mapping ao HealthChecker
+  • text_field_analyzed() expõe o mapping ao HealthChecker
 end note
 
 note as NERRO
   Ordem importa
   • Antes do tratador genérico, senão vira 500
   • Só falha com híbrida ligada
+  • Quem devolve 409 é o POST /ask, nunca o GET /health
 end note
 
 NFUSAO .. FusionService
+NIDENTIDADE .. SearchHit
 NFUNIL .. RetrievalService
+NREPASSE .. DenseSearchService
 NTEMPO .. RetrievalResult
 NESCALA .. SearchHit
-NRERANK .. RerankService
+NRERANK .. CrossEncoderRerankService
 NFRONTEIRA .. KeywordRepository
 NERRO .. InvalidIndexMappingException
 

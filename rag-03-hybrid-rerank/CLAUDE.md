@@ -47,7 +47,7 @@ Todo o contexto deste projeto vive em `docs/`. Não há contexto em `contexts/`,
 | 004 | Cross-encoder local atrás de `Protocol`, com Cohere prevista como segunda implementação |
 | 005 | Contrato compartilhado evoluído para 1.2.0, aditivo, com `distance` depreciado |
 | 006 | Buscas densa e BM25 em sequência, com paralelismo como decisão pendente |
-| 007 | `RetrievalService` devolve resultado com métrica; a facade deixa de cronometrar |
+| 007 | `RetrievalService` devolve resultado com métrica; a facade para de cronometrar o interior do estágio |
 | 008 | O funil mora em `rag/service/retrieval/`, pacote próprio dentro de `service/` |
 | 009 | Cada caminho de busca tem service próprio, mesmo delegando ao repositório |
 
@@ -65,7 +65,7 @@ próprio aqui.
   Nenhuma camada chama `sys.exit()` nem escreve em stdout.
 - **A `QueryFacade` não muda em ORQUESTRAÇÃO** (ADR-007). Ela continua chamando os mesmos
   estágios na mesma ordem e não sabe que a recuperação virou funil. O que muda nela é
-  transporte de métrica: deixa de cronometrar a busca, porque o `RetrievalService` passou a
+  transporte de métrica: deixa de cronometrar o INTERIOR da busca, porque o `RetrievalService` passou a
   medir por dentro. Se a facade ganhar responsabilidade nova de orquestração, aí sim alguma
   coisa foi parar no lugar errado.
 - **O cross-encoder custa segundos, não centésimos** (ADR-001 da feature). BEIR mede 6,1 s
