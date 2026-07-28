@@ -397,3 +397,43 @@ button.secundario:hover { color: var(--ferrugem); border-color: var(--ferrugem);
   border-left-color: var(--ocre);
   background: color-mix(in srgb, var(--ocre) 12%, var(--papel-2));
 }
+
+/* ---------------------------------------------------------------------------
+   Procedência do trecho (contrato 1.2.0)
+
+   Os badges têm cores distintas de propósito: `distancia` e as pontuações têm
+   sentidos OPOSTOS (menor é melhor contra maior é melhor), e distingui-los por
+   cor evita que sejam lidos como a mesma grandeza.
+
+   Projetos que não publicam estes campos simplesmente não renderizam os badges.
+   --------------------------------------------------------------------------- */
+
+.procedencia {
+  display: inline-flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.procedencia > span {
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+}
+
+.procedencia .caminhos {
+  background: rgba(99, 102, 241, 0.14);
+  color: #4338ca;
+}
+
+.procedencia .fusao {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.procedencia .rerank {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+}

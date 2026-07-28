@@ -39,7 +39,7 @@ Parâmetros: `k=4`, `candidates=20`, `rrf_k=60`. Medida: acerto de recuperação
 | Reordenador | só densa | híbrida | híbrida+rerank | latência média |
 |---|---|---|---|---|
 | `ms-marco-MiniLM-L-6-v2` (inglês) | 8/10 | 7/10 | **5/10** | 1,85 s |
-| `mmarco-mMiniLMv2-L12-H384-v1` (multilíngue) | 8/10 | 7/10 | **8/10** | 3,45 s |
+| `mmarco-mMiniLMv2-L12-H384-v1` (multilíngue) | 8/10 | 7/10 | **8/10** | 1,66 s |
 
 Na linha de identificadores, o inglês entregava **3/5** e o multilíngue entrega
 **5/5**. Tudo o mais é idêntico: mesmo corpus, mesmas perguntas, mesmos
@@ -53,7 +53,24 @@ distinguir; é a margem menor virar decisão errada quando se corta 4 de 30
 candidatos. Ele não era só mais fraco: **expulsava do top-4 trechos corretos que
 a fusão já tinha acertado.**
 
-O preço da correção é latência: L12 contra L6 quase dobra o estágio.
+### Correção de um número que publiquei errado
+
+A primeira versão deste runbook registrou 3,45 s de latência média para a
+configuração com reordenação. **Estava inflado pelo carregamento do modelo**, que
+acontece uma vez por processo e foi cobrado da rodada inteira. A medição repetida,
+com o modelo já em disco, dá **1,66 s**.
+
+O número de regime é ainda menor, e foi medido em separado pela API HTTP: a
+primeira requisição de um processo gastou `rerank_s` de **6,036 s**, e a segunda,
+com o modelo já em memória, **0,238 s**. O funil completo em regime custa cerca de
+0,8 s por turno nesta máquina.
+
+Isso valida a mitigação registrada no ADR-001 da feature: o cache de modelo em
+nível de módulo é a diferença entre 6 s e 0,2 s por requisição. Sem ele, cada
+`/ask` recarregaria meio gigabyte.
+
+O preço do modelo multilíngue continua existindo (L12 contra L6), mas é bem menor
+do que a primeira medição sugeria.
 
 ### O que a tabela diz sobre a busca híbrida, e o que ela não diz
 

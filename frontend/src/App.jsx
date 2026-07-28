@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ErroDaApi } from "./api";
 import { Conversa } from "./Conversa";
 import { Parametros } from "./Parametros";
+import Procedencia, { Tempos } from "./Procedencia";
 import "./App.css";
 
 const BACKEND_PADRAO = "http://localhost:8080";
@@ -251,10 +252,7 @@ function Resposta({ dados }) {
       </div>
 
       <div className="metricas">
-        {dados.timings?.search_s != null && <span>busca {dados.timings.search_s}s</span>}
-        {dados.timings?.generation_s != null && (
-          <span>geração {dados.timings.generation_s}s</span>
-        )}
+        <Tempos timings={dados.timings} />
         <span>{dados.hits?.length ?? 0} chunks</span>
       </div>
 
@@ -266,13 +264,15 @@ function Resposta({ dados }) {
                 {h.source}
                 {h.page != null && ` · p.${h.page}`}
               </span>
-              <span className="distancia">dist {h.distance}</span>
+              <Procedencia hit={h} />
             </div>
             <p className="trecho-texto">{h.excerpt}</p>
           </li>
         ))}
       </ol>
-      <p className="legenda">distância: menor é mais próximo</p>
+      <p className="legenda">
+        distância: menor é mais próximo · rrf e rerank: maior é melhor
+      </p>
     </section>
   );
 }

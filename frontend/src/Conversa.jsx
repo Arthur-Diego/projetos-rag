@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Procedencia, { Tempos } from "./Procedencia";
 
 /**
  * Interface de conversa, ativada pela feature `history` do contrato.
@@ -151,13 +152,7 @@ export function Turno({ pergunta, dados, indice }) {
       <Citacoes citacoes={dados.citations} indice={indice} destaque={destaque} />
 
       <div className="metricas">
-        {dados.timings?.rewrite_s != null && (
-          <span>reescrita {dados.timings.rewrite_s}s</span>
-        )}
-        {dados.timings?.search_s != null && <span>busca {dados.timings.search_s}s</span>}
-        {dados.timings?.generation_s != null && (
-          <span>geração {dados.timings.generation_s}s</span>
-        )}
+        <Tempos timings={dados.timings} />
         <span>{dados.hits?.length ?? 0} chunks</span>
       </div>
 
@@ -171,7 +166,7 @@ export function Turno({ pergunta, dados, indice }) {
                   {h.source}
                   {h.page != null && ` · p.${h.page}`}
                 </span>
-                <span className="distancia">dist {h.distance}</span>
+                <Procedencia hit={h} />
               </div>
               <p className="trecho-texto">{h.excerpt}</p>
             </li>
