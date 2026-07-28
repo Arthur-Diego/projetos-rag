@@ -12,7 +12,7 @@ dentro do `dd-feature`.
 
 ### Objetivo técnico
 
-Substituir o estágio de recuperação do pipeline por um funil de três estágios, mantendo
+Substituir o estágio de recuperação do pipeline por um funil de quatro etapas, mantendo
 intacto todo o resto do que o Projeto 2 entregou.
 
 1. **Recuperação por dois caminhos independentes.** A mesma pergunta resolvida vai para
@@ -29,7 +29,7 @@ intacto todo o resto do que o Projeto 2 entregou.
    do funil, sobre poucos candidatos.
 
 O que chega à janela de contexto deixa de ser "os `k` vizinhos mais próximos no espaço
-vetorial" e passa a ser "os `top_n` melhores segundo um modelo que comparou cada candidato
+vetorial" e passa a ser "os `k` melhores segundo um modelo que comparou cada candidato
 com a pergunta".
 
 **O problema técnico que isso endereça, e ele foi medido, não suposto.** O Projeto 2
@@ -53,8 +53,11 @@ Dependências com outros sistemas
   Inalterado em relação ao Projeto 2.
 - Elasticsearch, em container local, acessado por HTTP. Substitui o Qdrant e passa a
   atender os dois caminhos de busca.
-- Cross encoder `cross-encoder/ms-marco-MiniLM-L-6-v2`, executado localmente na CPU via
-  `sentence-transformers`. Não é serviço externo e não gasta API.
+- Cross encoder **multilíngue** `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`, executado
+  localmente na CPU via `sentence-transformers`. Não é serviço externo e não gasta API.
+  **Não** é o `ms-marco-MiniLM-L-6-v2` que o guia da trilha indica: aquele é treinado em
+  inglês, e medido sobre este corpus em português derrubava três acertos em dez. Ver a
+  revisão do ADR-004.
 - Contrato HTTP compartilhado `../../../../docs/contracts/rag-api.yaml`, que este projeto
   evolui para 1.2.0 (ver Interfaces públicas).
 - Frontend React genérico do workspace (`frontend/`), que renderiza controles a partir de
@@ -178,15 +181,20 @@ listados apenas quando mudam ou quando o funil depende deles.
 | --- | --- | --- |
 | `IngestionFacade` | Caso de uso de indexação. Inalterado em forma; muda apenas o repositório que recebe os chunks. | `DocumentReader`, `ChunkingService`, `VectorRepository` |
 | `QueryFacade` | Caso de uso de consulta. **Inalterada em orquestração**, alterada em transporte de métrica (ADR-007): continua chamando os mesmos estágios na mesma ordem, sem saber que a recuperação virou funil, mas deixa de cronometrar a busca e passa a repassar os tempos que o `RetrievalService` mediu por dentro. | `QueryRewriteService`, `RetrievalService`, `PromptBuilder`, `GenerationService`, `CitationResolver` |
-| `RetrievalService` | Política de recuperação, agora do funil inteiro: dono de `candidates`, `rrf_k` e `top_n`, da validação de faixa e do `require_index()` que origina o 409. Dispara os dois caminhos, entrega os rankings à fusão, passa os candidatos ao rerank e devolve os finais. Não implementa fusão nem pontuação. | `VectorRepository`, **`KeywordRepository`**, **`FusionService`**, **`RerankService`** |
+| `RetrievalService` | Política de recuperação, agora do funil inteiro: dono de `k`, `candidates` e `rrf_k`, da validação de faixa e do `require_index()` que origina o 409 no `/ask`. Dispara os dois caminhos, entrega os rankings à fusão, passa os candidatos ao rerank e devolve `RetrievalResult` com métrica. Não implementa fusão nem pontuação, e **fala com serviços, nunca com repositórios** (ADR-009). Expõe `keyword_only()`, diagnóstico do critério de aceite 8. | **`DenseSearchService`**, **`KeywordSearchService`**, **`FusionService`**, **`RerankService`** |
 | `VectorRepository` | Busca kNN densa sobre o índice. `Protocol` com adaptador Elasticsearch. Nada do vocabulário do Elasticsearch atravessa a fronteira. | Elasticsearch |
 | **`KeywordRepository`** | Busca BM25 sobre o **mesmo** índice e o mesmo documento. `Protocol` com adaptador Elasticsearch. Nominalmente previsto na seção 5 da guideline do workspace. | Elasticsearch |
 | **`FusionService`** | Reciprocal Rank Fusion. **Função pura:** recebe uma lista de rankings, devolve um ranking fundido e deduplicado. Não tem dependência nenhuma, e é por isso que mora aqui e não dentro do `RetrievalService`: é o componente que a guideline manda testar, e componente sem dependência é o mais barato de testar que existe. | nenhuma |
-| **`RerankService`** | Pontua cada par (pergunta, candidato) com o cross encoder e devolve os `top_n`. `Protocol`, com implementação local em `sentence-transformers`. O `Protocol` existe para a API de rerank da Cohere entrar depois como segunda implementação, sem reescrita. Nominalmente previsto na seção 5 da guideline. | `sentence-transformers` |
+| **`RerankService`** | Pontua cada par (pergunta, candidato) com o cross encoder e devolve os `k`. `Protocol`, com implementação local em `sentence-transformers`. O `Protocol` existe para a API de rerank da Cohere entrar depois como segunda implementação, sem reescrita. Nominalmente previsto na seção 5 da guideline. | `sentence-transformers` |
 | `QueryRewriteService` | Inalterado. Continua decidindo se reescreve e reescrevendo. O funil recebe a pergunta já resolvida, nunca a literal. | `GenerationService` |
 | `PromptBuilder` | Inalterado. Numera o contexto e monta o prompt de resposta. Passa a receber 4 trechos escolhidos por precisão, em vez de 4 escolhidos por proximidade. | `domain` |
 | `CitationResolver` | Inalterado. A citação continua resolvida por referência explícita, nunca por posição (precedente ADR-004 do Projeto 2, que a reordenação deste projeto torna ainda mais crítico). | `domain` |
-| `HealthChecker` | Passa a conferir também que o campo de texto do índice está mapeado como analisado, e não como `keyword`. Ver Riscos. | `VectorRepository` |
+| **`DenseSearchService`** | Encapsula o caminho denso e expõe a contagem do índice. **Delega ao repositório sem acrescentar política** (ADR-009); existe para o pacote `retrieval/` mostrar as quatro etapas do funil como pares. | `VectorRepository` |
+| **`KeywordSearchService`** | Encapsula o caminho léxico. Também delega. Um método só, contra dois do irmão denso: o repositório denso é o dono do índice. | `KeywordRepository` |
+| `HealthChecker` | Ganha `check_mapping(repository)`, que confere que o campo de texto do índice está mapeado como analisado e não como valor único. Consulta `/_cluster/health` em vez da raiz. Ver Riscos. | `VectorRepository` |
+| `JsonPresenter` | Converte domínio no formato do contrato 1.2.0. Omite estágio não executado em vez de emitir zero, e **nunca** escreve pontuação no campo de distância. | `domain` |
+| `ConsoleReporter` | Saída de terminal. Passa a imprimir a procedência por trecho (caminhos, posições, valores de fusão e rerank) em vez de apenas a melhor distância. | `domain` |
+| `rag/api/` | Camada HTTP: `app`, `dependencies`, `descriptor`, `error_handlers`, `schemas` e `routes/`. `descriptor` publica os quatro parâmetros do funil; `dependencies` cacheia cliente e reordenador em escopo de processo. | facades, services, repositories |
 
 **Divergência declarada em relação à guideline do workspace.** A seção 5 nomeia
 `KeywordRepository` e `RerankService`, mas não prevê o `FusionService`. Ele é acréscimo
@@ -200,7 +208,7 @@ deste projeto, e a justificativa é a testabilidade descrita acima. Vira ADR.
 
 - O cliente envia pergunta, transcrição e opções. O backend não guarda conversa.
 - `QueryRewriteService` decide se reescreve e produz a pergunta resolvida.
-- `RetrievalService` valida as faixas de `candidates`, `rrf_k` e `top_n`.
+- `RetrievalService` valida as faixas de `k`, `candidates` e `rrf_k`, e a relação `k <= candidates`.
 - `VectorRepository` embeda a pergunta resolvida e busca os `candidates` vizinhos mais
   próximos por kNN.
 - `KeywordRepository` busca os `candidates` melhores por BM25, com a mesma pergunta
@@ -208,7 +216,7 @@ deste projeto, e a justificativa é a testabilidade descrita acima. Vira ADR.
 - `FusionService` funde os dois rankings por RRF, somando `1/(rrf_k + posição + 1)` de cada
   aparição e deduplicando por `_id`. Um documento presente nos dois rankings soma as duas
   contribuições, e é por isso que a fusão o promove.
-- `RerankService` pontua os candidatos fundidos com o cross encoder e corta em `top_n`.
+- `RerankService` pontua os candidatos fundidos com o cross encoder e corta em `k`.
 - `PromptBuilder` numera os trechos finais com fonte e página coladas.
 - `GenerationService` produz a resposta; `CitationResolver` resolve os `[n]`.
 - A resposta carrega os tempos de cada estágio, separadamente.
@@ -268,17 +276,20 @@ Fonte de verdade
 | --- | --- | --- | --- | --- |
 | `POST /ask` | API | REST | Interna (loopback) | Sem meta. O `timings` por estágio é o instrumento, não o SLA |
 | `POST /ingest` | API | REST | Interna (loopback) | Idem |
-| `GET /health` | API | REST | Interna (loopback) | Passa a reportar também o mapping do campo de texto |
+| `GET /health` | API | REST | Interna (loopback) | Ganha `text_field_analyzed`. Responde **200** com `status: degraded` quando o índice está vazio ou mal mapeado: saúde REPORTA estado. Quem falha com 409 é o `POST /ask` |
 | `GET /capabilities` | API | REST | Interna (loopback) | Publica os parâmetros novos do funil |
 | CLI `ingest.py`, `ask.py`, `chat.py` | SDK | processo | Local | `ask.py` continua de turno único, para a medição ser scriptável |
 
-**O contrato compartilhado sobe para 1.2.0, de forma aditiva.** Todos os campos novos são
+**O contrato compartilhado sobe para 1.2.0, de forma aditiva com **um relaxamento declarado** (`distance` sai de
+`required`, porque trecho achado só por BM25 não tem distância).** Todos os campos novos são
 opcionais, então `rag-01` e `rag-02` permanecem válidos sem alteração. É o mesmo movimento
 que o ADR-005 do Projeto 2 fez ao subir de 1.0.0 para 1.1.0.
 
 O que a versão acrescenta:
 
-- `timings` ganha `keyword_s`, `fusion_s` e `rerank_s`, opcionais. Um funil de três
+- `timings` ganha **quatro** campos opcionais: `dense_s`, `keyword_s`, `fusion_s` e
+  `rerank_s`. `search_s` mantém o significado de TOTAL do estágio, e os quatro o
+  decompõem; somar os cinco conta a recuperação duas vezes. Um funil de três
   estágios medido como um `search_s` único não permite responder ao exercício 3 do guia
   ("rerankear 50 candidatos em vez de 20 melhora quanto, e custa quantos ms?").
 - `SearchHit` ganha `score` e `provenance`, opcionais. O campo `distance` **é mantido**,
@@ -286,9 +297,7 @@ O que a versão acrescenta:
   remover é o que mantém os dois projetos anteriores funcionando.
 
 O que a versão **não** precisa acrescentar, e vale registrar porque foi conferido: os
-parâmetros novos (`candidates`, `rrf_k`, `top_n` e a estratégia
-`densa | híbrida | híbrida+rerank`) não exigem mudança de schema. O `Parameter` já suporta
-`type: enum` com `options`, e o frontend renderiza controles a partir do que
+parâmetros novos (`hibrida`, `rerank`, `candidates` e `rrf_k`) não exigem mudança de schema. O `ParameterSpec` já suporta `type: boolean` e `type: integer` com faixa, e o frontend renderiza controles a partir do que
 `GET /capabilities` publicar. A comparação das três configurações fica disponível no
 navegador sem uma linha de frontend.
 
@@ -361,8 +370,9 @@ Logs
 
 Métricas
 
-- `timings` por estágio, na resposta: `rewrite_s`, `search_s` (densa), `keyword_s` (BM25),
-  `fusion_s`, `rerank_s` e `generation_s`. Neste projeto isso **deixa de ser conforto de
+- `timings` por estágio, na resposta: `rewrite_s`, `dense_s` (caminho denso),
+  `keyword_s` (BM25), `fusion_s`, `rerank_s`, `generation_s`, e `search_s` como TOTAL do
+  estágio de recuperação. Estágio que não executou fica **ausente**, nunca zerado. Neste projeto isso **deixa de ser conforto de
   diagnóstico e vira o instrumento principal**: é o que responde ao exercício 3 do guia e o
   que permite atribuir a lentidão ao estágio certo, em vez de culpar "a busca".
 - Contadores de recuperação por hit: posição em cada ranking, score do RRF, score do
@@ -502,6 +512,12 @@ ADRs associados (a escrever no Passo 4 do `dd-greenfield`, todos decididos nesta
 - ADR-007, `RetrievalService` devolve resultado com métrica e a facade deixa de cronometrar.
   **Corrige uma afirmação errada da versão 1.0.0 deste documento**, escrita a partir do
   desenho antes de o código do Projeto 2 ser lido.
+- ADR-008, o funil mora em `rag/service/retrieval/`, pacote próprio dentro de `service/`.
+- ADR-009, cada caminho de busca é encapsulado por um service, mesmo delegando.
+
+Os ADR-003, 004 e 005 ganharam seções de **Revisão** depois da validação: o modelo de
+reordenação mudou por medição, o contrato 1.2.0 revelou-se não ser aditivo puro, e o
+`SearchHit` ganhou um campo de identidade que o desenho não previa.
 
 Os ADRs do `rag-01-fundamentos-pdf` e do `rag-02-conversacional-citacoes` são **precedente
 conceitual, não vínculo**: valem para aqueles diretórios. Decisão herdada precisa de ADR
@@ -525,7 +541,7 @@ Decisões pendentes
 
 Próximos passos técnicos
 
-- Escrever os seis ADRs (Passo 4 do `dd-greenfield`).
+- Escrever os ADRs estruturais (Passo 4 do `dd-greenfield`). **Feito: nove ADRs.**
 - Primeira feature via `dd-feature`, que produz PRD da feature, FDD, diagramas, coleção
   Postman e implementação.
 - A feature natural é o funil de recuperação inteiro, porque fatiá lo em partes entregaria

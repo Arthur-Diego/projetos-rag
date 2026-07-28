@@ -12,8 +12,8 @@ System_Boundary(sistema, "rag-03-hybrid-rerank") {
   Container(ingest, "ingest.py", "Python 3.12.3", "Entrypoint de indexação. Lê pdfs/*.pdf, glob NÃO recursivo: pdfs/fora-do-corpus/ fica de fora de propósito.")
   Container(ask, "ask.py", "Python 3.12.3", "Turno único, sem REPL. É ele que mantém a medição scriptável.")
   Container(chat, "chat.py", "Python 3.12.3", "REPL, com os argumentos novos do funil. Guarda a transcrição no cliente e mostra por que cada trecho subiu.")
-  Container(serve, "serve.py", "FastAPI 0.140.9 e uvicorn 0.51.0", "API HTTP em 127.0.0.1. Implementa o contrato compartilhado 1.2.0, aditivo puro.")
-  Container(pacote, "rag/", "Pacote Python 3.12.3 em camadas", "facade, service, repository, presenter, domain, api. O funil inteiro vive aqui, e o cross encoder roda DENTRO deste processo.")
+  Container(serve, "serve.py", "FastAPI 0.140.9 e uvicorn 0.51.0", "API HTTP em 127.0.0.1. Implementa o contrato compartilhado 1.2.0, aditivo com um relaxamento declarado: distance sai de required.")
+  Container(pacote, "rag/", "Pacote Python 3.12.3 em camadas", "facade, service (com o subpacote retrieval), repository, presenter, domain, api. O funil inteiro vive aqui, e o cross encoder roda DENTRO deste processo.")
   Container(harness, "docs/operations/", "Python 3.12.3", "Harness de medição. As 10 perguntas e as páginas esperadas vivem em arquivo de dados, não no script.")
   ContainerDb(corpus, "pdfs/", "Sistema de arquivos", "Corpus indexado. pdfs/fora-do-corpus/ é o corpus de controle, jamais alcançado pelo glob.")
 }
@@ -64,13 +64,25 @@ note as ADR004
   vez por processo pelo sentence-transformers. Não há
   serviço a subir, porta a abrir nem chamada a pagar.
 
+  • Modelo multilíngue mmarco-mMiniLMv2-L12-H384-v1
+  • Revisão do ADR: o modelo em inglês foi trocado por medição
   • Provedor com escopo de processo, nunca de requisição
   • Escopo de requisição carregaria 500 MB por /ask
-  • Protocol deixa a via hospedada entrar depois
+end note
+
+note as SAUDE
+  **Saúde REPORTA estado; quem falha é quem trabalha.**
+  GET /health responde 200 com status degraded quando o
+  índice está vazio ou mal mapeado. Ele nunca devolve 409.
+
+  • O 409 é do POST /ask: EMPTY_INDEX e INVALID_INDEX_MAPPING
+  • Motor fora do ar é 503 em qualquer rota
+  • GET /capabilities responde sem infraestrutura no ar
 end note
 
 ADR001 .. elasticsearch
 ADR004 .. pacote
+SAUDE .. serve
 
 SHOW_LEGEND()
 @enduml

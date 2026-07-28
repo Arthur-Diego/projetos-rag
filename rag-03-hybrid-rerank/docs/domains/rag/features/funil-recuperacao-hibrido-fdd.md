@@ -47,7 +47,7 @@ citação. Não toca autenticação (não existe), nem persistência de conversa
 - Um usuário por vez. Concorrência não é caso tratado, e isso está registrado.
 - A máquina não tem GPU. Todo o custo de reordenação é de processador comum.
 
-**Restrições explícitas.** Os oito ADRs do projeto (`docs/adrs/generated/RAG/`) e os
+**Restrições explícitas.** Os nove ADRs do projeto (`docs/adrs/generated/RAG/`) e os
 quatro ADRs de produto do PRD são vinculantes.
 
 ---
@@ -296,15 +296,44 @@ class RerankService(Protocol):
     def rerank(self, question: str, hits: list[SearchHit], top_n: int) -> list[SearchHit]: ...
 
 class FusionService:                      # classe concreta; uma implementação não justifica Protocol
-    def fuse(self, rankings: list[list[SearchHit]], rrf_k: int) -> list[SearchHit]: ...
+    # Rankings ROTULADOS. O rótulo viaja junto porque a Provenance precisa dizer de
+    # qual caminho o trecho veio; índice posicional quebraria em silêncio no dia em
+    # que alguém inserisse um caminho no meio.
+    def fuse(
+        self, rankings: list[tuple[str, list[SearchHit]]], rrf_k: int
+    ) -> list[SearchHit]: ...
 
 class RetrievalService:
     def retrieve(self, query: str) -> RetrievalResult: ...
 ```
 
 `RetrievalResult` é `NamedTuple` em `domain/models.py`, com `hits` e os quatro tempos
-opcionais. `SearchHit` ganha `score: float | None` e `provenance: Provenance | None`.
-`Provenance` é `NamedTuple` própria.
+opcionais. `SearchHit` ganha **três** campos: `doc_id: str | None`,
+`score: float | None` e `provenance: Provenance | None`. `Provenance` é `NamedTuple`
+própria.
+
+`doc_id` é a identidade do trecho no armazém, e é o único identificador do motor que
+atravessa a fronteira do repositório. Ele existe porque é a chave de deduplicação da
+fusão (ADR-001): o guia da trilha usa `page_content[:200]`, atalho que funde em
+silêncio dois trechos distintos que comecem igual. **Não é emitido no JSON**, é campo
+interno.
+
+Dois serviços a mais encapsulam os caminhos de busca (ADR-009), e o `RetrievalService`
+fala com eles em vez de falar com os repositórios:
+
+```python
+class DenseSearchService:      # delega ao VectorRepository
+    def search(self, query: str, k: int) -> list[SearchHit]: ...
+    def indexed_count(self) -> int: ...
+
+class KeywordSearchService:    # delega ao KeywordRepository
+    def search(self, query: str, k: int) -> list[SearchHit]: ...
+```
+
+O `HealthChecker` ganha `check_mapping(repository)`, e o `VectorRepository` ganha
+`text_field_analyzed() -> bool | None` como sexto método do `Protocol`. O
+`RetrievalService` ganha `keyword_only(query, k)`, comando de diagnóstico do critério
+de aceite 8, que não é exposto como parâmetro de requisição.
 
 `domain/` continua sem importar LangChain e sem conhecer vocabulário do Elasticsearch.
 
@@ -317,7 +346,7 @@ opcionais. `SearchHit` ganha `score: float | None` e `provenance: Provenance | N
 | Condição | Tratamento | Status | Observação |
 | --- | --- | --- | --- |
 | Elasticsearch fora do ar | `ServiceUnavailableException` com a receita `docker compose up -d elasticsearch` | 503 | Distinto de índice vazio |
-| Cluster respondendo mas degradado | `ServiceUnavailableException` | 503 | Detectado por `/_cluster/health`, não pela raiz |
+| Cluster VERMELHO | `ServiceUnavailableException` | 503 | Detectado por `/_cluster/health`, não pela raiz. **Amarelo é aceito e precisa ser**: cluster de nó único nunca fica verde, porque as réplicas não têm onde ser alocadas |
 | Índice vazio ou inexistente | `EmptyIndexException` | 409 | Nasce em `require_index()`, comportamento herdado |
 | Campo de texto não analisado **e** `hibrida` ligado | `InvalidIndexMappingException` (nova) com receita de reindexação | 409 | **Não falha com `hibrida` desligado**: a busca densa não depende desse campo |
 | Dimensão do embedding divergente | `InvalidConfigurationException` | 500 | Herdado, inalterado |
@@ -397,8 +426,10 @@ trecho sai da máquina no estágio de rerank, porque ele roda local.
 
 **Garantias de compatibilidade**
 
-- Contrato compartilhado 1.2.0 é **aditivo puro**: todo campo novo é opcional e nenhum
-  existente muda de significado. Projetos 1 e 2 permanecem válidos sem alteração.
+- Contrato compartilhado 1.2.0 é aditivo **exceto por um relaxamento declarado**:
+  `distance` sai de `required`. Todo campo novo é opcional. `search_s` muda de
+  descrição, não de semântica: sempre foi o total do estágio, e agora isso está escrito.
+  Projetos 1 e 2 permanecem válidos sem alteração.
 - `distance` é depreciado, não removido.
 - O frontend compartilhado trata ausência de campo como "não exibir", de modo que os
   projetos que não publicam procedência continuam renderizando normalmente.
@@ -429,8 +460,11 @@ trecho sai da máquina no estágio de rerank, porque ele roda local.
 9. **Índice mal mapeado é reportado.** Com um índice criado sem mapping explícito, uma
    consulta com `hibrida` ligado devolve 409 `INVALID_INDEX_MAPPING`, e uma com `hibrida`
    desligado responde normalmente.
-10. **Health distingue estados.** Motor fora do ar devolve 503; motor no ar com índice
-    ausente devolve 409; cluster degradado não é aprovado como saudável.
+10. **Os estados são distinguíveis.** Motor fora do ar: 503 em qualquer rota. Motor no ar
+    com índice ausente: `GET /health` responde **200 com `status: degraded`**, e
+    `POST /ask` responde **409**. A distinção é deliberada: saúde REPORTA estado, quem
+    falha é quem precisa do índice para trabalhar. Cluster vermelho não é aprovado como
+    saudável; amarelo é, porque nó único nunca fica verde.
 11. **Citação sobrevive à reordenação.** Em cinco perguntas com `rerank` ligado, cada `[n]`
     é conferida à mão contra a página real do PDF, e todas conferem. Recusa não traz
     citação.
@@ -462,7 +496,7 @@ Ambiente: Elasticsearch 8.19.10 em container, cluster verde, índice `normas` co
 | 7 | Mapping explícito | atendido | `GET /normas/_mapping`: `text` com analisador `brazilian`, `dense_vector` 1536 `cosine` |
 | 8 | Fumaça do BM25 | atendido | 5 termos raros buscados só pelo caminho léxico retornam |
 | 9 | Índice mal mapeado é reportado | atendido | índice sintético com `keyword` levanta `InvalidIndexMappingException`; índice bom passa |
-| 10 | Health distingue estados | atendido | porta morta 503, índice inexistente 409, cluster saudável 200 |
+| 10 | Os estados são distinguíveis | atendido, **com correção** | porta morta 503; índice inexistente faz `require_index` levantar `EmptyIndexException`, que o `error_handlers` traduz em 409 no `/ask`; `/health` responde 200 `degraded`, e o contrato foi corrigido para parar de prometer 409 ali |
 | 11 | Citação sobrevive à reordenação | atendido | **6 citações conferidas contra o texto da página real** via `pypdf`, 6 conferem; 3 recusas, todas sem citação |
 | 12 | Compatibilidade preservada | atendido | rag-02: 74 testes verdes, mypy limpo; rag-01 e rag-02 emitem `distance` incondicionalmente |
 | 13 | A tabela existe e repete | atendido | três execuções, mesma tabela |
@@ -591,7 +625,7 @@ de corpus, âncora do `C1`, e logging estruturado.
 | 2 | Fusão RRF | 1 | `rag/service/retrieval/fusion_service.py`, `tests/test_fusion.py` | 1, 2, 3 |
 | 3 | Infraestrutura e mapping | 1 | `docker-compose.yml` (Elasticsearch com healthcheck e tag fixa), `.env.example`, `requirements.txt` | - |
 | 4 | Adaptadores de busca | 1, 3 | `rag/repository/vector_repository.py` (kNN, mapping explícito no `recreate`), `rag/repository/keyword_repository.py` (BM25) | 7 |
-| 5 | Reranking | 1 | `rag/service/retrieval/rerank_service.py` (`Protocol` mais implementação local), `tests/test_rerank.py` | 4 |
+| 5 | Reranking | 1 | `rag/service/retrieval/rerank_service.py` (`Protocol` mais implementação local), `tests/test_retrieval.py` | 4 |
 | 6 | Funil no `RetrievalService` | 2, 4, 5 | `rag/service/retrieval/retrieval_service.py`, `tests/test_retrieval.py`, `tests/conftest.py` (dublês novos: repositório léxico, reranker inversor, e um `FakeVectorRepository` com listas distintas por ramo) | 4, 5, 6 |
 | 7 | Facade e apresentadores | 6 | `rag/facade/query_facade.py` (deixa de cronometrar), `rag/presenter/json_presenter.py`, `rag/presenter/console_reporter.py` (rótulo por campo preenchido) | 6 |
 | 8 | Saúde e matriz de erros | 4, 7 | `rag/service/health_checker.py` (`/_cluster/health` e conferência de mapping), `rag/api/error_handlers.py`, `rag/repository/*` (método novo no `Protocol` para expor o mapping) | 9, 10 |

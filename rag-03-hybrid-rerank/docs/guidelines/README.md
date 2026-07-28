@@ -23,7 +23,7 @@ abaixo.
 | Chunking | `langchain-text-splitters` | 1.1.2 | |
 | Integrações | `langchain-community` | 0.4.2 | |
 | Busca densa **e** BM25 | `langchain-elasticsearch` | 1.0.0 | Elasticsearch em container |
-| Reranking | `sentence-transformers` | 5.6.1 | Cross-encoder local, CPU |
+| Reranking | `sentence-transformers` | 5.6.1 | Cross-encoder local **multilíngue**, CPU |
 | Leitura de PDF | `pypdf` | 6.14.2 | |
 | Configuração | `python-dotenv` | 1.2.2 | |
 | API HTTP | `fastapi` | **0.140.9** | O guia fixa 0.140.0 e o Projeto 2 usa 0.140.1; há patch novo |
@@ -39,8 +39,11 @@ Reciprocal Rank Fusion é escrita em Python, e não delegada ao retriever `rrf` 
 ES: fundir à mão é o entregável pedagógico do projeto, e mantém a fusão independente do
 motor — trocar o armazém não deveria custar a estratégia de fusão. Vira ADR.
 
-**Cross-encoder local, atrás de um `Protocol`.** `cross-encoder/ms-marco-MiniLM-L-6-v2`
-roda na CPU e não gasta API. O `RerankService` é `Protocol` (a guideline do workspace já o
+**Cross-encoder local, atrás de um `Protocol`.** O modelo confirmado inicialmente foi o
+`cross-encoder/ms-marco-MiniLM-L-6-v2` do guia, e a validação o **substituiu por medição**
+pelo multilíngue `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`: o modelo inglês, sobre corpus
+em português, derrubava três acertos em dez. Ver a revisão do ADR-004 e
+`docs/operations/README.md`. Roda na CPU e não gasta API. O `RerankService` é `Protocol` (a guideline do workspace já o
 nomeia assim), de modo que a API de rerank da Cohere entre depois como **segunda
 implementação**, sem reescrita — é exatamente o exercício 2 do guia, comparar qualidade
 contra latência e custo. Vira ADR.

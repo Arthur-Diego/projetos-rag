@@ -1,6 +1,6 @@
 # ADR-005: Contrato compartilhado evoluído para 1.2.0, de forma aditiva
 
-- **Status:** aceito
+- **Status:** aceito, com **revisão de 28/07/2026** (ver Revisão)
 - **Data:** 2026-07-28
 - **Domínio:** RAG
 - **Decisores:** arthu
@@ -100,6 +100,47 @@ trilha quer possibilitar.
   projeto futuro justificar uma versão maior.
 - O arquivo do contrato é compartilhado, então esta alteração toca um artefato fora do
   diretório deste projeto. É a natureza dele, e o precedente do Projeto 2 já a estabeleceu.
+
+## Revisão de 28/07/2026: "aditivo puro" era falso, e o que mudou
+
+Este ADR prometeu que a versão 1.2.0 seria **aditiva pura**. A implementação
+mostrou que não dá, e a promessa foi quebrada em dois pontos. Os dois estão
+registrados no próprio contrato; esta seção existe para o ADR parar de afirmar o
+contrário.
+
+**1. `distance` sai de `required` em `SearchHit`, e isso NÃO é aditivo.**
+
+O ADR dizia "`distance` **é mantido**", e ele é, como campo. O que não foi visto
+na hora é que o contrato 1.1.0 o declara **obrigatório** (`required: [source,
+distance]`), e um trecho encontrado apenas por busca léxica não tem distância
+nenhuma: BM25 não mede distância. Manter a obrigatoriedade exigiria inventar um
+valor, e número inventado num campo que a interface usa para ordenar é pior que a
+ausência.
+
+Relaxar `required` é **quebrante para consumidores** que assumam presença, ainda
+que inofensivo para produtores. Decidido com o autor, com a mitigação de que o
+campo continua sendo emitido sempre que existe: todo trecho que passou pelo
+caminho semântico o carrega, em qualquer configuração. `rag-01` e `rag-02` o
+emitem em 100 por cento dos hits, e por isso continuam válidos sem alteração,
+verificado rodando a suíte do `rag-02` (74 testes verdes) contra o contrato novo.
+
+**2. `timings` ganha QUATRO campos, não três.**
+
+O ADR previa `keyword_s`, `fusion_s` e `rerank_s`. Faltava `dense_s`. Com
+`search_s` mantendo o significado de TOTAL do estágio, o caminho denso ficaria sem
+campo próprio, e a decomposição não fecharia. O contrato declara os quatro, e
+`search_s` ganhou descrição explícita avisando que somar os cinco conta a
+recuperação duas vezes.
+
+**3. `GET /health` não ganha o status 409, ao contrário do que a primeira versão
+do contrato 1.2.0 chegou a publicar.**
+
+O 409 foi acrescentado ao `/health` por leitura apressada do critério de aceite
+10, que fala em "índice ausente devolve 409". O 409 é do `POST /ask`, que é onde
+o índice inutilizável impede o trabalho. Saúde **reporta** estado: responde 200
+com `status: degraded`, que é o que o código sempre fez e o que `rag-01` e
+`rag-02` fazem. O 409 foi removido do contrato e o critério 10 foi reescrito para
+nomear a rota.
 
 ## Referências
 

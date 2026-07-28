@@ -140,22 +140,38 @@ O que já se sabe do guia e dos projetos anteriores:
 
 ## Estado da validação
 
-_A preencher (o projeto ainda não tem código)._
+**Os 15 critérios de aceite atendidos.** Evidência comando a comando na seção 9.1
+do FDD; a tabela e as pendências em `docs/operations/README.md`.
 
-O entregável real deste projeto **é a tabela de medição**, não o script: 10 perguntas
-(5 conceituais, 5 de identificador) × 3 configurações (só densa, híbrida, híbrida +
-rerank).
+Reordenador multilíngue, `k=4`, `candidates=20`, `rrf_k=60`, corpus Harry Potter:
 
-**Pendência declarada desde o início, e ela é deliberada:** o corpus inicial é o
-*Harry Potter e a Pedra Filosofal*, herdado do Projeto 2. Ele tem nomes próprios raros
-(Nicolau Flamel, Quadribol, Grifinória) nos quais o BM25 deve ganhar, mas **não tem
-códigos**. A falha catastrófica da busca densa — `E-4021` contra `E-4022` sendo quase o
-mesmo vetor — não vai se materializar, então a linha de identificadores sai com contraste
-modesto e o critério "a densa deve falhar visivelmente" fica **parcialmente atendido**.
+| | só densa | híbrida | híbrida+rerank |
+|---|---|---|---|
+| Acertos (10) | 8/10 | 7/10 | 8/10 |
+| Recusas (10) | 3/10 | **2/10** | 5/10 |
+| Latência média | 2,68 s | 2,23 s | 3,03 s |
 
-O ganho do reranking é largamente independente do corpus, então a terceira coluna tem
-contraste real de qualquer forma.
+**Leia isto antes de tirar conclusões sobre busca híbrida.** Três coisas que a
+validação encontrou e que não estavam previstas:
 
-Trocar por documentação técnica densa em identificadores (CID-10, NCM, manual com códigos de
-erro) **não muda uma linha de código**: muda o PDF em `pdfs/` e o arquivo de perguntas. Por
-isso é pendência de validação, não mudança de escopo.
+1. **A busca híbrida NÃO demonstrou ganho neste corpus.** Não é defeito: os
+   critérios 7 e 8 provam que o mapping está correto e que o BM25 responde
+   sozinho. É a pendência declarada desde o PRD — Harry Potter não tem
+   identificadores de verdade, e nomes próprios de ficção vêm em contexto
+   narrativo rico, então a busca densa vai bem neles.
+2. **O reordenador indicado pelo guia da trilha é treinado em inglês**, e sobre
+   corpus em português **derrubava três acertos em dez** (5/10 contra 8/10). A
+   troca pelo multilíngue custou uma linha, porque o `RerankService` é `Protocol`.
+   Ver a revisão do ADR-004.
+3. **As duas métricas discordam, e a discordância é o achado mais útil.** A
+   reordenação melhora o acerto e piora a recusa. O acerto é anotado por PÁGINA e
+   os trechos têm 1000 caracteres, então o reordenador escolhe trechos que falam
+   sobre a entidade sem conter a frase que a responde: a página bate, o acerto é
+   contado, e o modelo corretamente recusa. **A coluna de acertos é otimista; a de
+   recusas é a confiável.**
+
+Descer a anotação de página para trecho é a pendência número 1, acima da troca de
+corpus: sem isso, a próxima medição também será otimista.
+
+Scripts que produziram a evidência estão em `docs/operations/` e podem ser rodados
+de novo. Eles gastam chamadas pagas.

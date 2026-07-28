@@ -99,6 +99,21 @@ por que um trecho subiu. Dado que sustenta o entregável pertence ao domínio.
   virar `Protocol`. Hoje é implementação concreta, porque uma implementação não justifica
   inversão.
 
+## Nota de 28/07/2026
+
+Dois pontos deste ADR foram refinados depois, e ficam aqui para quem o ler
+isolado:
+
+- **"dispara os dois repositórios"** deixou de ser literal. O
+  [[ADR-009-services-por-caminho-de-busca]] pôs `DenseSearchService` e
+  `KeywordSearchService` entre o orquestrador e os repositórios. A
+  responsabilidade descrita aqui não mudou; mudou com quem ele fala.
+- **`SearchHit` ganhou um terceiro campo além de `score` e `provenance`:**
+  `doc_id`, a identidade do trecho no armazém. É a chave de deduplicação da fusão,
+  e é o único identificador do motor que atravessa a fronteira do repositório. Sem
+  ele a fusão cairia no `page_content[:200]` do guia da trilha, que funde em
+  silêncio dois trechos distintos que comecem igual. Não é emitido no JSON.
+
 ## Referências
 
 - `../docs/guidelines/arquitetura-em-camadas.md`, seções 4 e 5

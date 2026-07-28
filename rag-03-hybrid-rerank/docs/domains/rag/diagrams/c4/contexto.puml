@@ -22,6 +22,7 @@ Rel_Back(estudante, rag, "Resposta com [n], procedência por trecho e tempo por 
 note right of rag
   Cross encoder local
   • Roda no mesmo processo, em CPU comum
+  • Modelo multilíngue, escolhido por medição
   • Não é serviço externo e não gasta API
   • Nenhum trecho do corpus sai da máquina
 end note
@@ -35,8 +36,9 @@ end note
 
 note right of estudante
   O que muda para quem usa
-  • Menos recusa em pergunta com nome próprio raro
+  • Cada trecho mostra por que subiu no ranking
   • Cada resposta traz o custo de cada estágio
+  • As três configurações são comparáveis lado a lado
   • A tabela de medição é o entregável, não o script
 end note
 

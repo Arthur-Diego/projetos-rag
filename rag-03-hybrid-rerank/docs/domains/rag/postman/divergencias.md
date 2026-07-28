@@ -1,5 +1,42 @@
 # Divergências: FDD × contrato publicado
 
+> ## ESTADO: RESOLVIDAS (28/07/2026)
+>
+> Este arquivo foi gerado no **Passo 5.5** do ciclo, quando o contrato ainda estava
+> em 1.1.0 e o FDD já especificava 1.2.0. A **etapa 10 do Build Order foi
+> executada** e o contrato subiu. O corpo abaixo é o registro original, mantido
+> porque a análise item a item continua sendo o melhor mapa do que mudou e por quê.
+>
+> **Duas divergências terminaram diferente do que a análise previa, e são as que
+> valem reler:**
+>
+> - **A1** (`distance` obrigatório) foi resolvida **tirando `distance` de
+>   `required`**, o que **não é aditivo**. O ADR-005 prometia "aditivo puro" e
+>   ganhou seção de Revisão por causa disto. O campo continua sendo emitido sempre
+>   que o trecho passou pelo caminho denso; só falta no trecho achado exclusivamente
+>   por BM25, onde nunca teve valor. `rag-01` e `rag-02` emitem em 100 por cento dos
+>   hits e seguem válidos, verificado rodando a suíte do rag-02.
+> - **A2** (`/health` sem 409) foi resolvida **ao contrário do previsto**. O 409
+>   chegou a ser publicado no contrato e depois foi **removido**: `/health` responde
+>   200 com `status: degraded`, porque saúde REPORTA estado. Quem devolve 409 é o
+>   `POST /ask`. O critério de aceite 10 foi reescrito para nomear a rota.
+>
+> **Duas continuam abertas, por decisão e não por esquecimento:**
+>
+> - **M4**, parâmetros do funil fora do schema de `options`. `options` é
+>   `additionalProperties: true` desde 1.0.0 e o `k` também está fora desde então.
+>   Publicar a faixa em `/capabilities` e impô-la no construtor do serviço é o
+>   mecanismo do projeto; duplicá-la no schema criaria dois lugares para manter.
+> - **M7**, `POST /ingest` fora da seção 5 do FDD. A rota não muda de contrato; o
+>   que mudou foi o comportamento interno da ingestão, que é assunto da seção 4.
+>
+> **M8** foi resolvida **em favor do código**: cluster amarelo é aceito, porque nó
+> único nunca fica verde. Só vermelho dá 503. Corrigimos o FDD e o diagrama, não o
+> código.
+>
+> As demais foram atendidas na subida para 1.2.0.
+
+
 **FDD:** `docs/domains/rag/features/funil-recuperacao-hibrido-fdd.md`, versão 1.0, de
 2026-07-28. Declara depender do contrato compartilhado **1.2.0** (seção 5, linha 176).
 

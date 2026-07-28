@@ -115,9 +115,22 @@ decisão errada no momento em que se corta 4 candidatos entre 30. Ele não era
 apenas mais fraco: **expulsava do top-4 trechos corretos que a fusão já tinha
 posto lá.**
 
-O preço da correção é latência: L12 contra L6 quase dobra o custo do estágio, de
-1,85 s para 3,45 s por turno nesta máquina. Aceito, porque o estágio existe para
-ganhar precisão e a versão barata estava perdendo.
+O preço da correção é latência, e **o número que esta seção publicou primeiro
+estava errado**. Dizia 3,45 s por turno, contra 1,85 s do modelo inglês. Aquele
+valor estava inflado pelo carregamento do modelo, que acontece uma vez por
+processo e foi cobrado da rodada inteira. Repetida a medição com o modelo já em
+disco: **1,66 s**, ou seja, o multilíngue ficou mais RÁPIDO que o inglês, não o
+dobro mais lento.
+
+Em regime a diferença é maior ainda, e ela valida a mitigação que este ADR previa
+em prosa: a primeira requisição de um processo gastou `rerank_s` de **6,036 s**, e
+a segunda, com o modelo em memória, **0,238 s**. O cache em nível de módulo é a
+diferença entre 6 s e 0,2 s por requisição; sem ele, cada `/ask` recarregaria meio
+gigabyte. O mesmo vale para o cliente do Elasticsearch, cacheado por URL.
+
+Com o número certo, o argumento "aceito porque o estágio existe para ganhar
+precisão" fica mais forte, e não mais fraco: ganhou-se três acertos em dez sem
+custar latência.
 
 **A decisão original sobrevive intacta**, e esta revisão é evidência a favor
 dela: trocar o modelo custou **uma linha** em `rag/config.py`, exatamente porque

@@ -36,8 +36,11 @@ info:
     - **`timings.dense_s`, `keyword_s`, `fusion_s` e `rerank_s`**, opcionais. Decompõem
       `search_s`, que MANTÉM o significado de total do estágio de recuperação. Quem
       somar os cinco conta a recuperação duas vezes.
-    - **`GET /health` ganha o status 409** e o campo `text_field_analyzed`. Um índice
-      pode estar no ar, populado, e ainda assim inutilizável para busca léxica.
+    - **`GET /health` ganha o campo `text_field_analyzed`.** Um índice pode estar no ar,
+      populado, e ainda assim inutilizável para busca léxica. O `status` passa a ser
+      `degraded` também nesse caso, e **continua sendo 200**: saúde reporta estado, não
+      falha por causa dele. Quem falha com 409 é `POST /ask`, que é onde o índice
+      inutilizável impede o trabalho.
 
     **O relaxamento, declarado porque não é aditivo:** `distance` sai de `required` em
     `SearchHit`. Um trecho encontrado APENAS por busca léxica não tem distância nenhuma;
@@ -108,15 +111,6 @@ paths:
                       encontra nada, **sem erro nenhum**: o índice responde, está
                       populado, e metade de um funil híbrido está morta. Ausente em
                       projetos que não fazem busca léxica.
-        "409":
-          description: |
-            Índice inutilizável. Desde 1.2.0. O serviço está no ar e o índice existe, mas
-            precisa ser reconstruído: ou está vazio, ou foi criado com um mapeamento que
-            não serve. O código dentro de `Problem` distingue os casos, e distingue
-            porque as receitas são diferentes.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Problem" }
         "503":
           description: Dependência externa fora do ar
           content:
