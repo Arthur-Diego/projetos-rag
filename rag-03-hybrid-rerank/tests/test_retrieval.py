@@ -22,7 +22,11 @@ from conftest import (  # noqa: E402
 
 from rag.domain.models import SearchHit  # noqa: E402
 from rag.exceptions import InvalidParameterException  # noqa: E402
+from rag.service.retrieval.dense_search_service import DenseSearchService  # noqa: E402
 from rag.service.retrieval.fusion_service import FusionService  # noqa: E402
+from rag.service.retrieval.keyword_search_service import (  # noqa: E402
+    KeywordSearchService,
+)
 from rag.service.retrieval.retrieval_service import RetrievalService  # noqa: E402
 
 
@@ -43,8 +47,10 @@ def build(
     **kwargs,
 ) -> RetrievalService:
     return RetrievalService(
-        FakeVectorRepository(dense if dense is not None else [hit("a")]),
-        keywords=FakeKeywordRepository(keyword or []),
+        DenseSearchService(
+            FakeVectorRepository(dense if dense is not None else [hit("a")])
+        ),
+        keywords=KeywordSearchService(FakeKeywordRepository(keyword or [])),
         fusion=FusionService(),
         reranker=reranker or PassThroughReranker(),
         **kwargs,
@@ -192,8 +198,8 @@ def test_o_caminho_denso_sempre_executa():
     """Não existe `densa=False`: o diagnóstico só-BM25 não é parâmetro público."""
     repositorio = FakeVectorRepository([hit("a")])
     servico = RetrievalService(
-        repositorio,
-        keywords=FakeKeywordRepository(),
+        DenseSearchService(repositorio),
+        keywords=KeywordSearchService(FakeKeywordRepository()),
         fusion=FusionService(),
         reranker=PassThroughReranker(),
         hybrid=False,
@@ -207,8 +213,8 @@ def test_o_caminho_denso_sempre_executa():
 def test_sem_hibrida_o_bm25_nem_e_consultado():
     keywords = FakeKeywordRepository([hit("lexico")])
     servico = RetrievalService(
-        FakeVectorRepository([hit("denso")]),
-        keywords=keywords,
+        DenseSearchService(FakeVectorRepository([hit("denso")])),
+        keywords=KeywordSearchService(keywords),
         fusion=FusionService(),
         reranker=PassThroughReranker(),
         hybrid=False,
@@ -234,8 +240,8 @@ def test_keyword_only_consulta_apenas_o_caminho_lexico():
     denso = FakeVectorRepository([hit("denso")])
     keywords = FakeKeywordRepository([hit("lexico")])
     servico = RetrievalService(
-        denso,
-        keywords=keywords,
+        DenseSearchService(denso),
+        keywords=KeywordSearchService(keywords),
         fusion=FusionService(),
         reranker=PassThroughReranker(),
     )

@@ -25,7 +25,11 @@ from rag.facade.query_facade import QueryFacade  # noqa: E402
 from rag.service.citation_resolver import CitationResolver  # noqa: E402
 from rag.service.prompt_builder import ESCAPE_PHRASE, PromptBuilder  # noqa: E402
 from rag.service.query_rewrite_service import QueryRewriteService  # noqa: E402
+from rag.service.retrieval.dense_search_service import DenseSearchService  # noqa: E402
 from rag.service.retrieval.fusion_service import FusionService  # noqa: E402
+from rag.service.retrieval.keyword_search_service import (  # noqa: E402
+    KeywordSearchService,
+)
 from rag.service.retrieval.retrieval_service import RetrievalService  # noqa: E402
 
 # Marcadores que distinguem os dois prompts. Copiados do início de cada template
@@ -280,8 +284,11 @@ def build_facade(
     return QueryFacade(
         rewrite=QueryRewriteService(llm, conditional=conditional_rewrite),
         retrieval=RetrievalService(
-            repository,
-            keywords=keywords or FakeKeywordRepository(),
+            # Os dublês são REPOSITÓRIOS, e vão embrulhados nos services reais.
+            # Dublar os services também esconderia justamente a delegação que o
+            # ADR-009 introduziu, e um repasse quebrado passaria despercebido.
+            DenseSearchService(repository),
+            keywords=KeywordSearchService(keywords or FakeKeywordRepository()),
             fusion=FusionService(),
             reranker=reranker or InvertingReranker(),
             k=k,

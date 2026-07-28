@@ -42,7 +42,9 @@ from rag.service.citation_resolver import CitationResolver
 from rag.service.generation_service import OpenAiGenerationService, create_embeddings
 from rag.service.prompt_builder import PromptBuilder
 from rag.service.query_rewrite_service import QueryRewriteService
+from rag.service.retrieval.dense_search_service import DenseSearchService
 from rag.service.retrieval.fusion_service import FusionService
+from rag.service.retrieval.keyword_search_service import KeywordSearchService
 from rag.service.retrieval.rerank_service import CrossEncoderRerankService
 from rag.service.retrieval.retrieval_service import RetrievalService
 
@@ -104,9 +106,9 @@ def build_query_facade(
         # que escondê-lo atrás de duas instâncias.
         rewrite=QueryRewriteService(generation, conditional=conditional_rewrite),
         retrieval=RetrievalService(
-            build_repository(properties, client),
-            keywords=ElasticKeywordRepository(
-                client=client, index=properties.collection
+            DenseSearchService(build_repository(properties, client)),
+            keywords=KeywordSearchService(
+                ElasticKeywordRepository(client=client, index=properties.collection)
             ),
             fusion=FusionService(),
             reranker=CrossEncoderRerankService(properties.reranker_model),

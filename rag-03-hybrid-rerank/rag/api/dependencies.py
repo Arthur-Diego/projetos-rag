@@ -39,7 +39,9 @@ from ..service.generation_service import (
     OpenAiGenerationService,
     create_embeddings,
 )
+from ..service.retrieval.dense_search_service import DenseSearchService
 from ..service.retrieval.fusion_service import FusionService
+from ..service.retrieval.keyword_search_service import KeywordSearchService
 from ..service.health_checker import HealthChecker
 from ..service.prompt_builder import PromptBuilder
 from ..service.retrieval.rerank_service import CrossEncoderRerankService, RerankService
@@ -111,6 +113,7 @@ def provide_keywords(properties: HealthyProperties) -> KeywordRepository:
 
 Keywords = Annotated[KeywordRepository, Depends(provide_keywords)]
 
+
 Fusion = Annotated[FusionService, Depends(FusionService)]
 
 
@@ -154,6 +157,28 @@ def provide_checked_repository(
 
 
 CheckedRepository = Annotated[VectorRepository, Depends(provide_checked_repository)]
+
+
+def provide_dense_search(repository: CheckedRepository) -> DenseSearchService:
+    """O caminho denso encapsulado (ADR-009).
+
+    Declara `CheckedRepository` e não `Repository`: quem consulta o índice precisa
+    da dimensão já conferida contra o modelo, senão o erro de dimensão só aparece
+    na primeira busca, com mensagem obscura do cliente e depois de a chamada paga
+    já ter acontecido.
+    """
+    return DenseSearchService(repository)
+
+
+DenseSearch = Annotated[DenseSearchService, Depends(provide_dense_search)]
+
+
+def provide_keyword_search(repository: Keywords) -> KeywordSearchService:
+    """O caminho léxico encapsulado (ADR-009)."""
+    return KeywordSearchService(repository)
+
+
+KeywordSearch = Annotated[KeywordSearchService, Depends(provide_keyword_search)]
 
 
 def provide_generation(properties: HealthyProperties) -> GenerationService:

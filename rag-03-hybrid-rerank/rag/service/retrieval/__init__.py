@@ -10,12 +10,21 @@ Agrupar torna a pergunta "o que este projeto faz de diferente?" respondível
 olhando um diretório, em vez de garimpando arquivos soltos entre oito irmãos que
 não mudaram.
 
-O que está aqui:
+O que está aqui, as quatro etapas do funil mais o orquestrador:
 
-- `retrieval_service` orquestra o funil e é dono da política (faixas, `k`,
-  `candidates`, `rrf_k`). Orquestra e não calcula.
+- `dense_search_service` busca por significado. **Delega ao repositório** (ADR-009).
+- `keyword_search_service` busca por palavra exata. **Delega ao repositório.**
 - `fusion_service` funde os rankings por posição. Função pura, sem dependência.
 - `rerank_service` reordena por precisão. `Protocol`, com implementação local.
+- `retrieval_service` orquestra os quatro e é dono da política (faixas, `k`,
+  `candidates`, `rrf_k`). Orquestra e não calcula.
+
+**Os dois primeiros são repasse hoje, e isso foi decidido de olhos abertos.** A
+guideline do workspace chama delegação pura de camada vazia, e ela está certa
+enquanto não houver política de caminho. O ADR-009 registra por que foram criados
+assim mesmo e qual é o gatilho que os torna necessários: tratamento de query
+próprio do BM25, expansão no caminho denso, contagens diferentes por caminho, ou o
+docstore que o Projeto 4 acrescenta.
 
 O que NÃO está aqui, e a ausência é deliberada:
 

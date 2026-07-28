@@ -24,10 +24,11 @@ from ...service.retrieval.retrieval_service import RetrievalService
 from ..dependencies import (
     CheckedRepository,
     Citations,
+    DenseSearch,
     Fusion,
     Generation,
     HealthyProperties,
-    Keywords,
+    KeywordSearch,
     Presenter,
     Prompts,
     Reranker,
@@ -49,7 +50,8 @@ def ask(
     prompts: Prompts,
     citations: Citations,
     presenter: Presenter,
-    keywords: Keywords,
+    dense: DenseSearch,
+    keywords: KeywordSearch,
     fusion: Fusion,
     reranker: Reranker,
 ) -> dict:
@@ -85,7 +87,7 @@ def ask(
     facade = QueryFacade(
         rewrite=QueryRewriteService(generation, conditional=conditional),
         retrieval=RetrievalService(
-            repository,
+            dense,
             keywords=keywords,
             fusion=fusion,
             reranker=reranker,

@@ -49,6 +49,7 @@ Todo o contexto deste projeto vive em `docs/`. Não há contexto em `contexts/`,
 | 006 | Buscas densa e BM25 em sequência, com paralelismo como decisão pendente |
 | 007 | `RetrievalService` devolve resultado com métrica; a facade deixa de cronometrar |
 | 008 | O funil mora em `rag/service/retrieval/`, pacote próprio dentro de `service/` |
+| 009 | Cada caminho de busca tem service próprio, mesmo delegando ao repositório |
 
 Os ADRs do `rag-01-fundamentos-pdf` e do `rag-02-conversacional-citacoes` são **precedente
 conceitual, não vínculo**: valem para aqueles diretórios. Decisão herdada precisa de ADR
@@ -80,6 +81,12 @@ próprio aqui.
   fica FORA**, apesar do sufixo: é o estágio da pergunta, não o da recuperação, e o
   funil recebe uma query já resolvida. Os repositórios também ficam fora: a fronteira
   deles é de camada, não de assunto.
+- **`DenseSearchService` e `KeywordSearchService` são REPASSE hoje** (ADR-009), e isso
+  foi decidido de olhos abertos: a guideline chama delegação pura de camada vazia, e ela
+  está certa enquanto não houver política de caminho. Existem para o pacote mostrar as
+  quatro etapas do funil como pares. **Não os apague achando que passaram despercebidos**;
+  o gatilho que os torna necessários está no ADR-009.
+- **O `RetrievalService` fala com services, nunca com repositórios** (ADR-009).
 - **O `RetrievalService` orquestra e não calcula** (ADR-003). Ele é dono de `candidates`,
   `rrf_k` e `top_n`, dispara os dois repositórios, entrega os rankings à fusão e passa o
   resultado ao rerank. A matemática do RRF mora no `FusionService`.

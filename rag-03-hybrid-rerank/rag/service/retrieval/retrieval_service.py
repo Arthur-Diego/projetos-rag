@@ -15,6 +15,12 @@ que é função pura sem dependência nenhuma (ADR-003), e a pontuação mora no
 `RerankService`. Se a fórmula do RRF aparecer neste arquivo, a responsabilidade
 escorregou.
 
+**Ele fala com serviços, nunca com repositórios** (ADR-009). Os dois caminhos de
+busca são encapsulados por `DenseSearchService` e `KeywordSearchService`, de modo
+que as quatro etapas do funil apareçam como pares dentro deste pacote. Os dois
+delegam ao repositório correspondente sem acrescentar política, e o ADR-009
+registra que isso foi escolha por legibilidade, não descuido.
+
 **Por que ele devolve `RetrievalResult` e não `list[SearchHit]`** (ADR-007): com
 quatro etapas por dentro, cronometrar de fora só produz um número agregado, e o
 agregado não responde onde o tempo foi gasto. O tempo sai pelo retorno, nunca
@@ -40,9 +46,9 @@ from ...config import (
 )
 from ...domain.models import PATH_DENSE, PATH_KEYWORD, RetrievalResult, SearchHit
 from ...exceptions import EmptyIndexException, InvalidParameterException
-from ...repository.keyword_repository import KeywordRepository
-from ...repository.vector_repository import VectorRepository
+from .dense_search_service import DenseSearchService
 from .fusion_service import FusionService
+from .keyword_search_service import KeywordSearchService
 from .rerank_service import RerankService
 
 
@@ -51,8 +57,8 @@ class RetrievalService:
 
     def __init__(
         self,
-        repository: VectorRepository,
-        keywords: KeywordRepository,
+        dense: DenseSearchService,
+        keywords: KeywordSearchService,
         fusion: FusionService,
         reranker: RerankService,
         k: int = DEFAULT_K,
@@ -110,7 +116,7 @@ class RetrievalService:
                 "Valor alto achata as diferenças entre posições."
             )
 
-        self._repository = repository
+        self._dense = dense
         self._keywords = keywords
         self._fusion = fusion
         self._reranker = reranker
@@ -121,7 +127,7 @@ class RetrievalService:
         self.rerank = rerank
 
     def indexed_count(self) -> int:
-        return self._repository.count()
+        return self._dense.indexed_count()
 
     def require_index(self, collection: str) -> int:
         """Falha cedo se não há o que buscar.
@@ -164,7 +170,7 @@ class RetrievalService:
         reabrir essa decisão com número em vez de intuição.
         """
         marker = perf_counter()
-        dense = self._repository.search(query, k=self.candidates)
+        dense = self._dense.search(query, k=self.candidates)
         dense_s = perf_counter() - marker
 
         rankings = [(PATH_DENSE, dense)]

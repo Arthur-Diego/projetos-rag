@@ -43,7 +43,11 @@ from rag.domain.models import Conversation  # noqa: E402
 from rag.repository.keyword_repository import ElasticKeywordRepository  # noqa: E402
 from rag.repository.vector_repository import ElasticVectorRepository  # noqa: E402
 from rag.service.citation_resolver import CitationResolver  # noqa: E402
+from rag.service.retrieval.dense_search_service import DenseSearchService  # noqa: E402
 from rag.service.retrieval.fusion_service import FusionService  # noqa: E402
+from rag.service.retrieval.keyword_search_service import (  # noqa: E402
+    KeywordSearchService,
+)
 from rag.service.generation_service import (  # noqa: E402
     OpenAiGenerationService,
     create_embeddings,
@@ -67,16 +71,20 @@ def build(properties, client, generation, **funil) -> QueryFacade:
     return QueryFacade(
         rewrite=QueryRewriteService(generation),
         retrieval=RetrievalService(
-            ElasticVectorRepository(
-                client=client,
-                index=properties.collection,
-                embeddings=create_embeddings(
-                    properties.embedding_model,
-                    properties.max_retries,
-                    properties.request_timeout_s,
-                ),
+            DenseSearchService(
+                ElasticVectorRepository(
+                    client=client,
+                    index=properties.collection,
+                    embeddings=create_embeddings(
+                        properties.embedding_model,
+                        properties.max_retries,
+                        properties.request_timeout_s,
+                    ),
+                )
             ),
-            keywords=ElasticKeywordRepository(client, properties.collection),
+            keywords=KeywordSearchService(
+                ElasticKeywordRepository(client, properties.collection)
+            ),
             fusion=FusionService(),
             reranker=CrossEncoderRerankService(properties.reranker_model),
             **funil,
