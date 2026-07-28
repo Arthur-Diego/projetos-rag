@@ -97,7 +97,17 @@ class RagProperties:
     request_timeout_s: float = 60.0
     #: Cross-encoder local, em CPU (ADR-004). Roda sem gastar API e sem que
     #: nenhum trecho do corpus saia da máquina.
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    #:
+    #: **MULTILÍNGUE, e não o `ms-marco-MiniLM-L-6-v2` do guia da trilha.** O
+    #: guia é escrito para corpus em inglês; este projeto indexa português. A
+    #: diferença foi MEDIDA sobre o mesmo corpus, mesmas perguntas e mesmos
+    #: parâmetros (ver docs/operations/README.md): o modelo inglês derrubou o
+    #: acerto de 8/10 para 5/10, e na linha de identificadores de 5/5 para 3/5.
+    #: Ele não era apenas mais fraco em português; ele expulsava do top-4
+    #: trechos corretos que a fusão tinha acertado.
+    #:
+    #: O preço é latência: L12 contra L6 quase dobra o tempo do estágio.
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
     @property
     def elastic_url(self) -> str:

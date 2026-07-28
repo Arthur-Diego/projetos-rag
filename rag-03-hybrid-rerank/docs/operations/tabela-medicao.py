@@ -30,6 +30,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -96,6 +97,15 @@ def main() -> int:
     parser.add_argument("--k", type=int, default=4)
     parser.add_argument("--candidates", type=int, default=20)
     parser.add_argument("--rrf-k", type=int, default=60)
+    parser.add_argument(
+        "--reranker",
+        default=None,
+        help=(
+            "sobrescreve o modelo de reordenacao. Serve para isolar o efeito da "
+            "LINGUA do modelo: o padrao e treinado em ingles e o corpus e em "
+            "portugues. Ex.: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+        ),
+    )
     args = parser.parse_args()
 
     dados = json.loads((Path(__file__).parent / "perguntas.json").read_text())
@@ -105,6 +115,8 @@ def main() -> int:
         return 1
 
     properties = config.load()
+    if args.reranker:
+        properties = replace(properties, reranker_model=args.reranker)
     client = Elasticsearch(properties.elastic_url)
     generation = OpenAiGenerationService(
         properties.chat_model,
@@ -115,6 +127,7 @@ def main() -> int:
 
     print(f"corpus indexado : {dados['corpus']}")
     print(f"parametros      : k={args.k} candidates={args.candidates} rrf_k={args.rrf_k}")
+    print(f"reranker        : {properties.reranker_model}")
     print(f"geracao         : {'DESLIGADA' if args.sem_geracao else 'ligada (gasta API)'}")
     print()
 

@@ -1,6 +1,6 @@
 # ADR-004: Cross encoder local atrás de `Protocol`, com Cohere prevista como segunda implementação
 
-- **Status:** aceito
+- **Status:** aceito, com o **modelo revisto por medição** em 28/07/2026 (ver Revisão)
 - **Data:** 2026-07-28
 - **Domínio:** RAG
 - **Decisores:** arthu
@@ -86,6 +86,49 @@ no mesmo processo.
   `rerank_s` ser medido em separado, de modo que o custo seja visível e atribuível em vez de
   sentido.
 - O projeto passa a depender de `torch`, que é a maior dependência da trilha até aqui.
+
+## Revisão de 28/07/2026: o modelo muda, a decisão não
+
+**O modelo passa a ser `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`**, e não o
+`cross-encoder/ms-marco-MiniLM-L-6-v2` que este ADR nomeava e que o guia da
+trilha indica.
+
+O que motivou não foi opinião, foi medição. A primeira execução da tabela deu um
+resultado que contrariava a hipótese do projeto: a configuração com reordenação
+acertava **5 de 10**, contra 8 de 10 da busca puramente densa. A suspeita, e ela
+se confirmou, é que o MS MARCO é um conjunto de dados em **inglês**, e este
+projeto indexa português.
+
+Trocando apenas o modelo, com o mesmo corpus, as mesmas perguntas, os mesmos
+parâmetros e o mesmo índice:
+
+| Reordenador | só densa | híbrida | híbrida+rerank | identificadores |
+| --- | --- | --- | --- | --- |
+| `ms-marco-MiniLM-L-6-v2` (inglês) | 8/10 | 7/10 | **5/10** | 3/5 |
+| `mmarco-mMiniLMv2-L12-H384-v1` (multilíngue) | 8/10 | 7/10 | **8/10** | 5/5 |
+
+O diagnóstico fino importa, porque a leitura ingênua estaria errada. Medindo
+pares isolados, o modelo inglês **não está quebrado** em português: ele separa
+trecho relevante de irrelevante por cerca de 17,5 pontos, contra 20,7 quando a
+pergunta e o trecho estão em inglês. O que acontece é que a margem menor vira
+decisão errada no momento em que se corta 4 candidatos entre 30. Ele não era
+apenas mais fraco: **expulsava do top-4 trechos corretos que a fusão já tinha
+posto lá.**
+
+O preço da correção é latência: L12 contra L6 quase dobra o custo do estágio, de
+1,85 s para 3,45 s por turno nesta máquina. Aceito, porque o estágio existe para
+ganhar precisão e a versão barata estava perdendo.
+
+**A decisão original sobrevive intacta**, e esta revisão é evidência a favor
+dela: trocar o modelo custou **uma linha** em `rag/config.py`, exatamente porque
+o `RerankService` é `Protocol`. Nenhuma camada acima soube.
+
+Também vale registrar o que isto **não** prova. A coluna híbrida continua abaixo
+da densa pura neste corpus, e a explicação segue sendo a pendência declarada
+desde o PRD: Harry Potter não tem identificadores de verdade. O que este
+experimento fez foi **eliminar uma variável concorrente**, de modo que a próxima
+troca de corpus responda a pergunta do projeto em vez de produzir outro número
+ambíguo.
 
 ## Referências
 

@@ -17,6 +17,10 @@ langchain-elasticsearch==1.0.0
 # Reordenacao por cross-encoder, LOCAL e em CPU (ADR-004). Baixa cerca de 500 MB
 # de modelo mais torch na primeira execucao. Nao gasta API, e nenhum trecho do
 # corpus sai da maquina neste estagio.
+#
+# O modelo padrao e MULTILINGUE (mmarco), nao o ms-marco ingles do guia da
+# trilha: medido sobre este corpus, o ingles derrubava o acerto de 8/10 para
+# 5/10. Ver rag/config.py e docs/operations/README.md.
 sentence-transformers==5.6.1
 
 # NAO instale rank-bm25, apesar de o guia da trilha o listar. Seria um SEGUNDO
