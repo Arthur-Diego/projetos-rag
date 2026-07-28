@@ -72,6 +72,42 @@ nível de módulo é a diferença entre 6 s e 0,2 s por requisição. Sem ele, c
 O preço do modelo multilíngue continua existindo (L12 contra L6), mas é bem menor
 do que a primeira medição sugeria.
 
+### A tabela completa, com a taxa de recusa
+
+Reordenador multilíngue, `k=4`, `candidates=20`, `rrf_k=60`:
+
+| | só densa | híbrida | híbrida+rerank |
+|---|---|---|---|
+| Conceituais (5) | 3/5 | 2/5 | 3/5 |
+| Identificadores (5) | 5/5 | 5/5 | **5/5** |
+| **Acertos (10)** | 8/10 | 7/10 | **8/10** |
+| **Recusas (10)** | 3/10 | **2/10** | **5/10** |
+| Latência média | 2,68 s | 2,23 s | 3,03 s |
+
+### O achado incômodo: as duas métricas DISCORDAM
+
+**A recuperação melhora com reordenação e a recusa piora.** Acertos vão de 7/10
+para 8/10, e recusas vão de 2/10 para 5/10. As duas colunas não podem estar
+medindo a mesma coisa.
+
+A explicação, e ela é uma limitação da MEDIÇÃO e não do sistema: o acerto é
+medido por **página**, e os trechos têm 1000 caracteres. Uma página rende vários
+trechos. O reordenador escolhe trechos que falam *sobre* a entidade sem conter a
+frase que a responde; a página bate com a anotação, o acerto é contado, e o modelo
+**corretamente** recusa porque o trecho não sustenta resposta nenhuma.
+
+Confirmado na conferência de citação do critério 11: `I4` (plataforma nove e meia)
+e `I5` (Olivaras) aparecem como acerto na tabela e **recusaram** quando
+perguntados com geração.
+
+Portanto: **a métrica de acerto por página superestima o sucesso.** Ela mede "o
+funil chegou perto", não "o funil trouxe a resposta". A taxa de recusa é a métrica
+mais honesta das duas, e é justamente ela que o ADR-002 mandou manter ao lado.
+
+Isso reforça a pendência do golden set: a anotação precisa descer de página para
+**trecho**, ou o acerto precisa exigir que o texto da resposta esteja no trecho
+recuperado, e não apenas que a página coincida.
+
 ### O que a tabela diz sobre a busca híbrida, e o que ela não diz
 
 A coluna híbrida (7/10) fica **abaixo** da densa pura (8/10) neste corpus. Isso
@@ -96,14 +132,14 @@ acertos em dez.
 
 ### Pendências de validação
 
-1. **Trocar o corpus** por documentação técnica em português densa em
+1. **A anotação do golden set precisa descer de página para trecho.** É a
+   pendência mais importante, e a tabela acima é a evidência: acerto por página
+   conta como sucesso um trecho que não sustenta resposta nenhuma. Enquanto isso
+   não mudar, a coluna de acertos é otimista e só a de recusas é confiável.
+2. **Trocar o corpus** por documentação técnica em português densa em
    identificadores (CID-10, NCM, manual com códigos de erro). Não muda uma linha
    de código: troca o PDF em `pdfs/` e o `perguntas.json`. É o experimento que
    finalmente responde se a busca híbrida ajuda.
-2. **Conferir o golden set.** As páginas foram ancoradas por co-ocorrência de
-   termos, o que garante não-circularidade mas não garante que a passagem
-   ancorada seja a melhor resposta. `C1` falha nas três configurações, o que
-   cheira mais a âncora imprecisa do que a recuperação ruim.
-3. **Taxa de recusa não foi medida.** Todas as execuções usaram `--sem-geracao`.
-   Falta rodar sem a flag para obter a coluna comparável com o Projeto 2.
-4. **Conferência de citação à mão** (critério 11) contra a página real do PDF.
+3. **`C1` falha nas três configurações**, o que cheira a âncora imprecisa e não a
+   recuperação ruim. Vale conferir a página do chapéu seletor à mão.
+4. **Logging estruturado**, pendência herdada do Projeto 2 e não resolvida aqui.

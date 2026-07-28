@@ -446,6 +446,65 @@ trecho sai da máquina no estágio de rerank, porque ele roda local.
 
 ---
 
+### 9.1 Estado da validação (28/07/2026)
+
+Ambiente: Elasticsearch 8.19.10 em container, cluster verde, índice `normas` com
+617 trechos de 274 páginas. Reordenador `mmarco-mMiniLMv2-L12-H384-v1`.
+
+| # | Critério | Estado | Evidência |
+| --- | --- | --- | --- |
+| 1 | Fusão promove consenso | atendido | `tests/test_fusion.py`, trecho nos dois rankings fica acima |
+| 2 | Fusão ignora escala | atendido | multiplicar um ranking por 1000 não altera a saída |
+| 3 | Deduplicação por identidade | atendido | dois trechos com 380 caracteres iniciais idênticos contam como dois |
+| 4 | Reordenação manda na ordem | atendido | `InvertingReranker` inverte a entrada e a saída sai invertida |
+| 5 | Corte e faixas | atendido | `k > candidates` recusado; 6 faixas parametrizadas |
+| 6 | Tempos ausentes, nunca zero | atendido | `keyword_s` e `rerank_s` ausentes com o estágio desligado |
+| 7 | Mapping explícito | atendido | `GET /normas/_mapping`: `text` com analisador `brazilian`, `dense_vector` 1536 `cosine` |
+| 8 | Fumaça do BM25 | atendido | 5 termos raros buscados só pelo caminho léxico retornam |
+| 9 | Índice mal mapeado é reportado | atendido | índice sintético com `keyword` levanta `InvalidIndexMappingException`; índice bom passa |
+| 10 | Health distingue estados | atendido | porta morta 503, índice inexistente 409, cluster saudável 200 |
+| 11 | Citação sobrevive à reordenação | atendido | **6 citações conferidas contra o texto da página real** via `pypdf`, 6 conferem; 3 recusas, todas sem citação |
+| 12 | Compatibilidade preservada | atendido | rag-02: 74 testes verdes, mypy limpo; rag-01 e rag-02 emitem `distance` incondicionalmente |
+| 13 | A tabela existe e repete | atendido | três execuções, mesma tabela |
+| 14 | Ganho demonstrado, ou ausência registrada | atendido **como resultado negativo** | ver abaixo |
+| 15 | Suíte e tipos limpos | atendido | 107 testes, mypy limpo em 52 arquivos |
+
+**O critério 14 merece leitura cuidadosa.** Ele foi escrito prevendo os dois
+desfechos, e o desfecho foi o segundo: **a busca híbrida não demonstrou ganho
+neste corpus.**
+
+| | só densa | híbrida | híbrida+rerank |
+| --- | --- | --- | --- |
+| Acertos (10) | 8/10 | 7/10 | 8/10 |
+| Recusas (10) | 3/10 | 2/10 | 5/10 |
+| Latência média | 2,68 s | 2,23 s | 3,03 s |
+
+Não é defeito de implementação, e os critérios 7 e 8 são a prova: o mapping está
+correto e o BM25 responde sozinho. A causa é a pendência declarada desde o PRD, o
+corpus sem identificadores de verdade.
+
+**As duas métricas discordam, e a discordância é o achado mais útil da
+validação.** A reordenação melhora o acerto (7/10 para 8/10) e piora a recusa
+(2/10 para 5/10). A explicação é uma limitação da medição: o acerto é anotado por
+**página**, e os trechos têm 1000 caracteres, então uma página rende vários. O
+reordenador escolhe trechos que falam sobre a entidade sem conter a frase que a
+responde; a página bate, o acerto é contado, e o modelo corretamente recusa.
+Confirmado na conferência do critério 11, onde `I4` e `I5` aparecem como acerto na
+tabela e recusaram quando perguntados.
+
+**Portanto a coluna de acertos é otimista e a de recusas é a confiável.** Descer a
+anotação de página para trecho é a pendência número 1.
+
+Um achado que nenhum documento previa, e que a validação encontrou: o reordenador
+indicado pelo guia da trilha é treinado em inglês, e sobre corpus em português
+**derrubava três acertos em dez** (5/10 contra 8/10). Ver `docs/operations/README.md`
+e a revisão do ADR-004.
+
+Pendências registradas, em `docs/operations/README.md`: anotação por trecho, troca
+de corpus, âncora do `C1`, e logging estruturado.
+
+---
+
 ### 10. Riscos e mitigação
 
 #### Mapping inferido faz o BM25 degradar em silêncio
