@@ -161,3 +161,42 @@ def test_relatorio_reporta_os_chunks_descartados_da_colecao_anterior():
     assert report.previous_chunks == 1
     assert report.chunks > 0
     assert repository.added != []
+
+
+# ---------------------------------------------------------------------------
+# Reaproveitamento do store
+# ---------------------------------------------------------------------------
+
+
+def test_recreate_descarta_o_store_guardado():
+    """O store guardado aponta para a coleção antiga; recriar precisa invalidá-lo.
+
+    Sem isso, o adaptador continuaria escrevendo através de um objeto que
+    aponta para uma coleção que não existe mais.
+
+    O reaproveitamento em si é medido contra o Qdrant real (ver
+    docs/operations/): o `QdrantVectorStore` embeda 'dummy_text' na construção
+    para validar a dimensão, e construir um a cada busca dobrava as chamadas
+    pagas de embedding.
+    """
+    from rag.repository.vector_repository import QdrantVectorRepository
+
+    repo = QdrantVectorRepository.__new__(QdrantVectorRepository)
+    repo._collection = "normas"
+    repo._cached_store = object()  # simula um store já construído
+
+    class ClienteFalso:
+        def collection_exists(self, _):
+            return False
+
+        def create_collection(self, **_):
+            pass
+
+        def count(self, *a, **k):
+            raise AssertionError("nao deveria contar: colecao inexistente")
+
+    repo._client = ClienteFalso()
+
+    repo.recreate(1536)
+
+    assert repo._cached_store is None

@@ -94,6 +94,7 @@ class QdrantVectorRepository:
         self._client = QdrantClient(url=f"http://{host}:{port}", timeout=int(timeout_s))
         self._collection = collection
         self._embeddings = embeddings
+        self._cached_store: QdrantVectorStore | None = None
 
     def _unavailable(self, e: Exception) -> ServiceUnavailableException:
         return ServiceUnavailableException(
@@ -150,6 +151,9 @@ class QdrantVectorRepository:
         previous = self.count()
         if self._exists():
             self._client.delete_collection(self._collection)
+        # O store guardado aponta para a coleção que acabou de ser apagada.
+        # Descartar aqui força a reconstrução contra a coleção nova.
+        self._cached_store = None
         self._client.create_collection(
             collection_name=self._collection,
             # COSINE porque os embeddings da OpenAI são unitários: cosseno e
@@ -161,11 +165,31 @@ class QdrantVectorRepository:
         return previous
 
     def _store(self) -> QdrantVectorStore:
-        return QdrantVectorStore(
-            client=self._client,
-            collection_name=self._collection,
-            embedding=self._embeddings,
-        )
+        """Constrói o store uma vez e reaproveita.
+
+        **Isto não é micro-otimização; é dinheiro.** O `QdrantVectorStore` nasce
+        com `validate_embeddings=True`, e essa validação embeda a string
+        `'dummy_text'` para conferir se a dimensão do modelo bate com a da
+        coleção. Uma chamada paga à OpenAI, na construção.
+
+        A versão anterior deste método construía um store NOVO a cada `search()`,
+        então toda busca custava DUAS chamadas de embedding em vez de uma: a
+        validação e a query. Numa conversa de 10 turnos pelo `chat.py`, eram 10
+        validações idênticas do mesmo par modelo/coleção.
+
+        A validação em si é útil e fica: ela mede a dimensão real que o modelo
+        produz, enquanto o `HealthChecker.check_dimensions` compara a dimensão
+        *declarada* em `RagProperties` com a da coleção. Quem trocar
+        `embedding_model` sem trocar `embedding_dimensions` só é pego por esta.
+        O que muda é a frequência: uma vez por repositório, não por busca.
+        """
+        if self._cached_store is None:
+            self._cached_store = QdrantVectorStore(
+                client=self._client,
+                collection_name=self._collection,
+                embedding=self._embeddings,
+            )
+        return self._cached_store
 
     def add(self, chunks: list[Chunk]) -> None:
         self._store().add_documents(_to_documents(chunks))
