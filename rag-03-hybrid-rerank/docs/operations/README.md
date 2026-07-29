@@ -27,7 +27,91 @@ medição circular, e o sistema acertaria por definição.
 
 ---
 
-## Resultado da validação de 28/07/2026
+## Resultado com o corpus de identificadores (28/07/2026, segunda rodada)
+
+Corpus: **Manual de Orientação do Contribuinte da NF-e, Anexo I** (CONFAZ), 153
+páginas, 553 chunks. Acerto medido por **âncora textual no trecho**, não por
+página. Reordenador multilíngue, `k=4`, `candidates=20`, `rrf_k=60`.
+
+| | só densa | híbrida | híbrida+rerank |
+|---|---|---|---|
+| Conceituais (5) | 2/5 | 2/5 | 2/5 |
+| **Identificadores (5)** | **0/5** | 2/5 | **5/5** |
+| **Total (10)** | 2/10 | 4/10 | **7/10** |
+| **Recusas (10)** | 9/10 | 8/10 | **6/10** |
+| Latência média | 2,12 s | 1,78 s | 2,56 s |
+
+### A hipótese do projeto se confirmou
+
+**A busca densa acertou ZERO das cinco perguntas de identificador.** Não é
+"acertou menos": é falha total, e é a falha estrutural que o projeto existe para
+demonstrar. Um embedding não distingue `229` de `234`, e as descrições que os
+acompanham diferem por uma palavra:
+
+```
+229 Rejeição: IE do emitente não informada
+230 Rejeição: IE do emitente não cadastrada
+231 Rejeição: IE do emitente não vinculada ao CNPJ
+232 Rejeição: IE do destinatário não informada
+```
+
+As quatro ocupam quase o mesmo ponto do espaço vetorial. O corpus anterior, de
+ficção, não produzia essa condição: nomes próprios narrativos vêm cercados de
+contexto rico, o que os torna semanticamente densos.
+
+### O achado fino: a fusão sozinha não basta, o rerank é que fecha
+
+Repare na progressão da linha de identificadores: **0/5 → 2/5 → 5/5**.
+
+O BM25 traz o trecho certo para o conjunto de candidatos, mas a fusão por posição
+nem sempre o promove ao top-4: ele disputa com 19 outros candidatos do caminho
+denso, que estão errados mas bem colocados. **É o cross-encoder que reconhece qual
+dos ~30 candidatos responde a pergunta.**
+
+Ou seja, os dois estágios são necessários e nenhum é suficiente. É exatamente o
+desenho de funil que o projeto propôs, e a tabela mostra cada etapa contribuindo.
+
+### As duas métricas voltaram a concordar
+
+Na primeira rodada, acerto subia e recusa piorava, e isso denunciava que a
+medição por página estava otimista. Com âncora por trecho as duas andam juntas:
+acertos 2 → 4 → 7, recusas 9 → 8 → 6. A medição parou de mentir.
+
+### O que continua fraco, e é honesto registrar
+
+**As conceituais ficaram em 2/5 nas três configurações.** Três falham em todas:
+contingência (C2), duplicidade (C4) e dígito verificador (C5). Duas explicações
+possíveis, e não as separei:
+
+1. As âncoras conceituais podem estar mal escolhidas. `Contingência EPEC` aparece
+   5 vezes no documento, e a passagem que de fato *explica* o mecanismo pode não
+   ser a que contém a string.
+2. O documento é uma tabela de regras de validação, não um texto explicativo. Ele
+   **lista** o que rejeita; não **ensina** como funciona. Pergunta conceitual pode
+   simplesmente não ter resposta aqui.
+
+A segunda hipótese é a mais provável, e tem consequência: este corpus é excelente
+para a metade de identificadores e fraco para a metade conceitual. Um corpus
+ideal teria as duas, e ele não existe entre os que testei.
+
+**A taxa de recusa é alta em termos absolutos** (6/10 na melhor configuração). O
+modelo recebe fragmentos de tabela e é conservador. Não é defeito do funil: nas
+seis recusas da melhor configuração, o trecho certo estava presente em cinco.
+
+### Pendências
+
+1. **Separar as duas hipóteses das conceituais**: reescrever as âncoras
+   conceituais ou aceitar que este corpus não responde pergunta conceitual.
+2. **Um terceiro corpus para nome próprio raro sem código.** A Bíblia seria boa
+   para isso (Melquisedeque, Zorobabel), com a ressalva de que a referência
+   `João 3:16` normalmente não aparece como token junto do versículo no PDF,
+   então o BM25 não teria o que casar. Testaria a metade de entidade rara, não a
+   de código.
+3. **Logging estruturado**, herdado do Projeto 2.
+
+---
+
+## Primeira rodada, com corpus de ficção (mantida como contraste)
 
 Corpus: *Harry Potter e a Pedra Filosofal*, 274 páginas, 617 chunks.
 Parâmetros: `k=4`, `candidates=20`, `rrf_k=60`. Medida: acerto de recuperação.

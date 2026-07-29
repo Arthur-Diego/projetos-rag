@@ -14,11 +14,19 @@ Exige o Elasticsearch no ar e o índice populado:
 **Este é o entregável do projeto, não o script.** O que importa é a tabela que
 ele imprime.
 
-Como o acerto é medido (ADR-002 da feature): cada pergunta tem, anotado à mão em
-`perguntas.json`, o conjunto de páginas que sustentam a resposta. Uma
-configuração acerta quando um dos trechos finais entregues ao modelo vem de uma
-dessas páginas. As anotações foram ancoradas por busca literal no PDF, nunca
-pelo sistema medido, senão a medição seria circular.
+Como o acerto é medido (ADR-002 da feature, revisto em 28/07): cada pergunta tem,
+anotada à mão em `perguntas.json`, uma **âncora textual** que precisa aparecer
+literalmente no texto de um dos trechos finais entregues ao modelo.
+
+**A âncora desceu de página para trecho, e a mudança importa.** A primeira versão
+media por página, e a validação mostrou que isso superestima o sucesso: uma
+página rende vários trechos de 1000 caracteres, então o funil podia trazer um
+trecho da página certa que não continha a resposta. A página batia, o acerto era
+contado, e o modelo corretamente recusava. As duas métricas discordavam, e a de
+acerto é que estava otimista.
+
+As âncoras foram extraídas do PDF com `pypdf`, nunca pelo sistema medido, senão a
+medição seria circular e o sistema acertaria por definição.
 
 A taxa de recusa é registrada ao lado. Ela não define acerto (uma resposta
 errada, confiante e com citação contaria como sucesso, e esse é o modo de falha
@@ -28,6 +36,7 @@ que torna os dois projetos comparáveis.
 
 import argparse
 import json
+import re
 import sys
 import time
 from dataclasses import replace
@@ -60,6 +69,15 @@ from rag.facade.query_facade import QueryFacade  # noqa: E402
 
 #: As três colunas da tabela. São combinações dos MESMOS estágios: o caminho
 #: denso sempre executa, e o que varia é acrescentar o léxico e a reordenação.
+def normaliza(texto: str) -> str:
+    """Achata espaços e caixa para a comparação sobreviver ao PDF.
+
+    A extração de PDF quebra linha no meio de frase e duplica espaço; comparar
+    cru produziria falso negativo por causa de formatação, não de recuperação.
+    """
+    return re.sub(r"\s+", " ", texto).strip().lower()
+
+
 CONFIGURACOES = [
     ("só densa", {"hybrid": False, "rerank": False}),
     ("híbrida", {"hybrid": True, "rerank": False}),
@@ -152,7 +170,7 @@ def main() -> int:
         )
         resultados[nome] = {}
         for item in perguntas:
-            esperadas = set(item["paginas"])
+            ancora = normaliza(item["ancora"])
             inicio = time.perf_counter()
 
             if args.sem_geracao:
@@ -163,7 +181,9 @@ def main() -> int:
                 hits, recusou = answer.hits, answer.refused
 
             resultados[nome][item["id"]] = {
-                "acertou": any(h.page in esperadas for h in hits),
+                # Acerto por TRECHO: a âncora precisa estar no texto recuperado.
+                # Por página, um trecho vizinho que não responde nada contaria.
+                "acertou": any(ancora in normaliza(h.text) for h in hits),
                 "recusou": recusou,
                 "paginas": [h.page for h in hits],
                 "segundos": time.perf_counter() - inicio,
@@ -175,7 +195,7 @@ def main() -> int:
     largura = max(len(n) for n, _ in CONFIGURACOES) + 2
     categorias = ["conceitual", "identificador"]
 
-    print("ACERTOS (trecho de pagina esperada entre os finais)")
+    print("ACERTOS (ancora textual presente em algum trecho final)")
     print(f"{'':22}" + "".join(f"{n:>{largura}}" for n, _ in CONFIGURACOES))
     for categoria in categorias:
         ids = [p["id"] for p in perguntas if p["categoria"] == categoria]

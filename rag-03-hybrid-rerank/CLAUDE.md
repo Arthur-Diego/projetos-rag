@@ -140,38 +140,45 @@ O que já se sabe do guia e dos projetos anteriores:
 
 ## Estado da validação
 
-**Os 15 critérios de aceite atendidos.** Evidência comando a comando na seção 9.1
-do FDD; a tabela e as pendências em `docs/operations/README.md`.
+**Os 15 critérios de aceite atendidos, e a hipótese do projeto CONFIRMADA.**
+Evidência comando a comando na seção 9.1 do FDD; as duas rodadas de medição e as
+pendências em `docs/operations/README.md`.
 
-Reordenador multilíngue, `k=4`, `candidates=20`, `rrf_k=60`, corpus Harry Potter:
+Corpus: **Manual de Orientação do Contribuinte da NF-e** (CONFAZ), 153 páginas,
+553 chunks. Acerto medido por **âncora textual no trecho**, não por página.
 
 | | só densa | híbrida | híbrida+rerank |
 |---|---|---|---|
-| Acertos (10) | 8/10 | 7/10 | 8/10 |
-| Recusas (10) | 3/10 | **2/10** | 5/10 |
-| Latência média | 2,68 s | 2,23 s | 3,03 s |
+| Conceituais (5) | 2/5 | 2/5 | 2/5 |
+| **Identificadores (5)** | **0/5** | 2/5 | **5/5** |
+| Total (10) | 2/10 | 4/10 | **7/10** |
+| Recusas (10) | 9/10 | 8/10 | **6/10** |
 
-**Leia isto antes de tirar conclusões sobre busca híbrida.** Três coisas que a
-validação encontrou e que não estavam previstas:
+**A busca densa acertou ZERO das cinco perguntas de identificador.** Não é
+"acertou menos": é falha total, e é a falha estrutural que o projeto existe para
+demonstrar. Um embedding não distingue `229` de `234`, e as descrições que os
+acompanham diferem por uma palavra.
 
-1. **A busca híbrida NÃO demonstrou ganho neste corpus.** Não é defeito: os
-   critérios 7 e 8 provam que o mapping está correto e que o BM25 responde
-   sozinho. É a pendência declarada desde o PRD — Harry Potter não tem
-   identificadores de verdade, e nomes próprios de ficção vêm em contexto
-   narrativo rico, então a busca densa vai bem neles.
-2. **O reordenador indicado pelo guia da trilha é treinado em inglês**, e sobre
-   corpus em português **derrubava três acertos em dez** (5/10 contra 8/10). A
-   troca pelo multilíngue custou uma linha, porque o `RerankService` é `Protocol`.
-   Ver a revisão do ADR-004.
-3. **As duas métricas discordam, e a discordância é o achado mais útil.** A
-   reordenação melhora o acerto e piora a recusa. O acerto é anotado por PÁGINA e
-   os trechos têm 1000 caracteres, então o reordenador escolhe trechos que falam
-   sobre a entidade sem conter a frase que a responde: a página bate, o acerto é
-   contado, e o modelo corretamente recusa. **A coluna de acertos é otimista; a de
-   recusas é a confiável.**
+**O achado fino: a fusão sozinha não basta.** A progressão é 0/5 → 2/5 → 5/5. O
+BM25 traz o trecho certo para o conjunto de candidatos, mas a fusão por posição
+nem sempre o promove ao top-4, porque ele disputa com 19 candidatos densos que
+estão errados e bem colocados. **É o cross-encoder que reconhece qual dos ~30
+responde.** Os dois estágios são necessários; nenhum é suficiente.
 
-Descer a anotação de página para trecho é a pendência número 1, acima da troca de
-corpus: sem isso, a próxima medição também será otimista.
+Três coisas que a validação encontrou pelo caminho:
 
-Scripts que produziram a evidência estão em `docs/operations/` e podem ser rodados
-de novo. Eles gastam chamadas pagas.
+1. **O corpus anterior não servia**, e isso estava previsto desde o PRD. Ficção
+   dá nomes próprios semanticamente densos, e a busca densa ia bem neles. A
+   primeira rodada está em `docs/operations/README.md` como contraste.
+2. **A anotação por página superestimava o sucesso.** Enquanto ela valeu, acerto
+   e recusa discordavam. Com âncora por trecho as duas andam juntas.
+3. **O reordenador do guia da trilha é treinado em inglês** e derrubava três
+   acertos em dez sobre corpus português. Ver a revisão do ADR-004.
+
+**O que continua fraco:** as conceituais ficam em 2/5 nas três configurações. A
+explicação provável é que este documento é uma tabela de regras que **lista** o
+que rejeita, e não um texto que **ensina** como funciona. Registrado como
+pendência.
+
+Scripts que produziram a evidência estão em `docs/operations/` e podem ser
+rodados de novo. Eles gastam chamadas pagas.

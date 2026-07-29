@@ -2,86 +2,104 @@
   "_comentario": [
     "Golden set da tabela de medição (ADR-002 da feature).",
     "",
-    "As páginas esperadas foram ancoradas por BUSCA LITERAL no texto do PDF, com",
-    "pypdf, e NUNCA pelo sistema que está sendo medido. Usar a recuperação para",
-    "descobrir a página certa tornaria a medição circular: o sistema acertaria por",
-    "definição.",
+    "MUDANÇA IMPORTANTE em relação à primeira versão: a âncora desceu de PÁGINA",
+    "para TRECHO. A validação de 28/07 mostrou que anotar por página superestima o",
+    "sucesso: uma página rende vários trechos de 1000 caracteres, e o funil podia",
+    "trazer um trecho da página certa que não continha a resposta. A página batia, o",
+    "acerto era contado, e o modelo corretamente recusava.",
     "",
-    "`paginas` é um CONJUNTO de páginas aceitáveis, não uma só. Mais de um trecho",
-    "costuma sustentar a mesma pergunta, e exigir uma página específica puniria uma",
-    "recuperação correta por ter escolhido a outra passagem válida.",
+    "Agora `ancora` é uma string que precisa aparecer LITERALMENTE no texto de um dos",
+    "trechos finais. Sem julgamento, sem ambiguidade, e sem circularidade: as âncoras",
+    "foram extraídas do PDF com pypdf, nunca pelo sistema medido.",
     "",
-    "Trocar de corpus é trocar este arquivo e o PDF. Nenhuma linha de código muda:",
-    "é o que torna a pendência do corpus sem identificadores resolvível depois sem",
-    "retrabalho.",
+    "`paginas` fica como informação de apoio para conferência humana, e NÃO é mais o",
+    "critério de acerto.",
     "",
-    "Categorias:",
-    "  conceitual   - parafraseada, sem coincidir com o vocabulário do texto.",
-    "                 É onde a busca densa deve ir bem.",
-    "  identificador - nome próprio raro, tokens de baixa frequência.",
-    "                 É onde a busca densa degrada e o BM25 acerta."
+    "POR QUE ESTE CORPUS. O anterior era ficção, e nomes próprios de ficção vêm em",
+    "contexto narrativo rico, o que os torna semanticamente densos: a busca densa ia",
+    "bem neles e a híbrida não tinha o que consertar. Aqui os códigos de rejeição são",
+    "consecutivos e as descrições diferem por UMA PALAVRA:",
+    "",
+    "  229 Rejeição: IE do emitente não informada",
+    "  230 Rejeição: IE do emitente não cadastrada",
+    "  231 Rejeição: IE do emitente não vinculada ao CNPJ",
+    "  232 Rejeição: IE do destinatário não informada",
+    "",
+    "Um embedding não distingue 229 de 232, e as quatro descrições ocupam quase o",
+    "mesmo ponto do espaço vetorial. O BM25 casa o token exato. É a condição que a",
+    "busca híbrida existe para resolver, e o corpus anterior não a produzia."
   ],
-  "corpus": "j-k-rowling-1-harry-potter-e-a-pedra-filosofal.pdf",
+  "corpus": "moc-nfe-anexo-i.pdf",
   "perguntas": [
     {
       "id": "C1",
       "categoria": "conceitual",
-      "pergunta": "Como os novos alunos são distribuídos entre as casas da escola?",
-      "paginas": [109, 193]
+      "pergunta": "O que acontece quando o documento chega ao órgão receptor muito tempo depois de ter sido emitido?",
+      "ancora": "Data de Emissão muito atrasada",
+      "paginas": [76, 144]
     },
     {
       "id": "C2",
       "categoria": "conceitual",
-      "pergunta": "Como uma equipe vence uma partida do esporte jogado em vassouras?",
-      "paginas": [150, 151, 196]
+      "pergunta": "Como funciona a emissão quando o sistema da autoridade fiscal está indisponível?",
+      "ancora": "Contingência EPEC",
+      "paginas": [10, 77]
     },
     {
       "id": "C3",
       "categoria": "conceitual",
-      "pergunta": "Que consequência sofre quem mata uma criatura pura para se alimentar dela?",
-      "paginas": [222, 223, 227, 229]
+      "pergunta": "O que impede o download de um documento por quem não é o destinatário dele?",
+      "ancora": "não tem o mesmo CNPJ raiz do solicitante do download",
+      "paginas": [149]
     },
     {
       "id": "C4",
       "categoria": "conceitual",
-      "pergunta": "Que benefícios a substância lendária guardada na escola concede a quem a possui?",
-      "paginas": [194, 202, 229]
+      "pergunta": "O que ocorre quando o mesmo documento é enviado duas vezes para o fisco?",
+      "ancora": "Duplicidade de NF-e",
+      "paginas": [143, 144]
     },
     {
       "id": "C5",
       "categoria": "conceitual",
-      "pergunta": "Por que o menino sobreviveu ao ataque que deveria tê-lo matado quando bebê?",
-      "paginas": [232, 260, 264]
+      "pergunta": "Qual verificação matemática garante que o número identificador do documento não foi digitado errado?",
+      "ancora": "Chave de Acesso com dígito verificador inválido",
+      "paginas": [144]
     },
     {
       "id": "I1",
       "categoria": "identificador",
-      "pergunta": "Quem é Nicolau Flamel?",
-      "paginas": [194, 202]
+      "pergunta": "O que significa a rejeição 229?",
+      "ancora": "IE do emitente não informada",
+      "paginas": [144]
     },
     {
       "id": "I2",
       "categoria": "identificador",
-      "pergunta": "O que é o Espelho de Ojesed?",
-      "paginas": [172, 184, 188]
+      "pergunta": "O que significa a rejeição 234?",
+      "ancora": "IE do destinatário não vinculada ao CNPJ",
+      "paginas": [144]
     },
     {
       "id": "I3",
       "categoria": "identificador",
-      "pergunta": "Quem é o Fofo?",
-      "paginas": [170, 218, 235]
+      "pergunta": "O que é a rejeição 226?",
+      "ancora": "Código da UF do Emitente diverge da UF autorizadora",
+      "paginas": [144]
     },
     {
       "id": "I4",
       "categoria": "identificador",
-      "pergunta": "Onde fica a plataforma nove e meia?",
-      "paginas": [78, 80, 82]
+      "pergunta": "O que quer dizer o código 262?",
+      "ancora": "UF não fornece consulta por CPF",
+      "paginas": [144]
     },
     {
       "id": "I5",
       "categoria": "identificador",
-      "pergunta": "Quem é Olivaras?",
-      "paginas": [73, 74, 75, 76]
+      "pergunta": "O que é a rejeição 261?",
+      "ancora": "IE da consulta não cadastrada como contribuinte na UF",
+      "paginas": [144]
     }
   ]
 }

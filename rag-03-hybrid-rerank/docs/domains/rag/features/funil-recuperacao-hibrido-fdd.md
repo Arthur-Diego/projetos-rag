@@ -500,12 +500,27 @@ Ambiente: Elasticsearch 8.19.10 em container, cluster verde, índice `normas` co
 | 11 | Citação sobrevive à reordenação | atendido | **6 citações conferidas contra o texto da página real** via `pypdf`, 6 conferem; 3 recusas, todas sem citação |
 | 12 | Compatibilidade preservada | atendido | rag-02: 74 testes verdes, mypy limpo; rag-01 e rag-02 emitem `distance` incondicionalmente |
 | 13 | A tabela existe e repete | atendido | três execuções, mesma tabela |
-| 14 | Ganho demonstrado, ou ausência registrada | atendido **como resultado negativo** | ver abaixo |
+| 14 | Ganho demonstrado, ou ausência registrada | atendido, **ganho DEMONSTRADO** | ver abaixo |
 | 15 | Suíte e tipos limpos | atendido | 107 testes, mypy limpo em 52 arquivos |
 
-**O critério 14 merece leitura cuidadosa.** Ele foi escrito prevendo os dois
-desfechos, e o desfecho foi o segundo: **a busca híbrida não demonstrou ganho
-neste corpus.**
+**O critério 14 foi atendido em duas rodadas, e só a segunda o cumpriu.**
+
+**Segunda rodada, corpus Manual da NF-e (CONFAZ), acerto por âncora no trecho:**
+
+| | só densa | híbrida | híbrida+rerank |
+| --- | --- | --- | --- |
+| Conceituais (5) | 2/5 | 2/5 | 2/5 |
+| **Identificadores (5)** | **0/5** | 2/5 | **5/5** |
+| Total (10) | 2/10 | 4/10 | **7/10** |
+| Recusas (10) | 9/10 | 8/10 | **6/10** |
+
+**A busca densa acertou zero das cinco de identificador.** É a falha estrutural
+que o projeto existe para demonstrar. O achado fino é a progressão 0/5 → 2/5 →
+5/5: o BM25 traz o trecho certo para o conjunto de candidatos, mas é o
+cross-encoder que o promove ao top-4. Os dois estágios são necessários e nenhum é
+suficiente.
+
+**Primeira rodada, corpus de ficção, mantida como contraste:**
 
 | | só densa | híbrida | híbrida+rerank |
 | --- | --- | --- | --- |
@@ -513,9 +528,9 @@ neste corpus.**
 | Recusas (10) | 3/10 | 2/10 | 5/10 |
 | Latência média | 2,68 s | 2,23 s | 3,03 s |
 
-Não é defeito de implementação, e os critérios 7 e 8 são a prova: o mapping está
-correto e o BM25 responde sozinho. A causa é a pendência declarada desde o PRD, o
-corpus sem identificadores de verdade.
+Não era defeito de implementação, e os critérios 7 e 8 já eram a prova. A causa
+era a pendência declarada desde o PRD, o corpus sem identificadores de verdade, e
+a segunda rodada confirmou isso ao trocar o corpus e nada mais.
 
 **As duas métricas discordam, e a discordância é o achado mais útil da
 validação.** A reordenação melhora o acerto (7/10 para 8/10) e piora a recusa
@@ -526,8 +541,9 @@ responde; a página bate, o acerto é contado, e o modelo corretamente recusa.
 Confirmado na conferência do critério 11, onde `I4` e `I5` aparecem como acerto na
 tabela e recusaram quando perguntados.
 
-**Portanto a coluna de acertos é otimista e a de recusas é a confiável.** Descer a
-anotação de página para trecho é a pendência número 1.
+**Aquela discordância era sintoma da medição, e sumiu quando a anotação desceu de
+página para trecho.** Na segunda rodada as duas métricas andam juntas: acertos
+2 → 4 → 7, recusas 9 → 8 → 6.
 
 Um achado que nenhum documento previa, e que a validação encontrou: o reordenador
 indicado pelo guia da trilha é treinado em inglês, e sobre corpus em português
