@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ErroDaApi } from "./api";
 import { Conversa } from "./Conversa";
 import { Parametros } from "./Parametros";
-import Procedencia, { Tempos } from "./Procedencia";
+import { Tempos } from "./Procedencia";
+import Relatorio from "./Relatorio";
+import Trecho from "./Trecho";
 import "./App.css";
 
 const BACKEND_PADRAO = "http://localhost:8080";
@@ -259,14 +261,7 @@ function Resposta({ dados }) {
       <ol className="trechos">
         {(dados.hits ?? []).map((h, i) => (
           <li key={i}>
-            <div className="trecho-cabecalho">
-              <span className="fonte">
-                {h.source}
-                {h.page != null && ` · p.${h.page}`}
-              </span>
-              <Procedencia hit={h} />
-            </div>
-            <p className="trecho-texto">{h.excerpt}</p>
+            <Trecho hit={h} />
           </li>
         ))}
       </ol>
@@ -277,26 +272,3 @@ function Resposta({ dados }) {
   );
 }
 
-function Relatorio({ dados }) {
-  const linhas = [
-    ["Páginas lidas", dados.pages],
-    ["Chunks gerados", dados.chunks],
-    ["Páginas sem texto", dados.discarded_pages],
-    ["Chunks descartados", dados.previous_chunks],
-    ["Tamanho do chunk", dados.chunk_size],
-    ["Sobreposição", dados.chunk_overlap],
-    ["Tempo", `${dados.seconds}s`],
-  ];
-  return (
-    <section className="resposta">
-      <dl className="relatorio">
-        {linhas.map(([rotulo, valor]) => (
-          <div key={rotulo}>
-            <dt>{rotulo}</dt>
-            <dd>{valor ?? "—"}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}

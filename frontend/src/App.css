@@ -229,6 +229,59 @@ button[type="submit"]:disabled { opacity: 0.45; cursor: not-allowed; }
 .fonte { color: var(--tinta-2); word-break: break-all; }
 .distancia { color: var(--ocre); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .trecho-texto { margin: 0.4rem 0 0; font-size: 0.9rem; color: var(--tinta-2); }
+
+/* ── trecho multimodal, contrato 1.3.0 ─────────────────────────────────────
+   O selo de `kind` e a tabela renderizada. Projetos que não emitem `kind` não
+   renderizam selo nenhum e caem no `.trecho-texto` acima, como sempre.
+   -------------------------------------------------------------------------- */
+
+/* O `margin-left: auto` encosta o selo à direita, junto da procedência, num
+   cabeçalho com `justify-content: space-between`. Sem ele o selo ficaria
+   flutuando no meio — e com um invólucro no lugar dele, todo hit dos projetos
+   1 a 3 ganharia um `<span>` que não usa. */
+.selo-kind {
+  margin-left: auto;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+}
+.selo-kind.texto { background: rgba(90, 98, 112, 0.16); color: var(--tinta-2); }
+.selo-kind.tabela { background: rgba(31, 107, 96, 0.18); color: var(--verde); }
+.selo-kind.imagem { background: rgba(168, 98, 31, 0.18); color: var(--ocre); }
+
+/* A rolagem é DESTE contêiner. Uma tabela de balanço tem colunas demais para a
+   largura do trecho; sem o `overflow-x` aqui quem ganha barra lateral é a
+   página, e a tela inteira passa a andar de lado por causa de uma fonte. */
+.trecho-tabela {
+  margin-top: 0.5rem;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.trecho-tabela table {
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: var(--tinta-2);
+  font-variant-numeric: tabular-nums;
+}
+.trecho-tabela th,
+.trecho-tabela td {
+  border: 1px solid var(--linha);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.trecho-tabela th { background: var(--papel); font-weight: 600; }
+.trecho-tabela caption {
+  caption-side: top;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--tinta-2);
+  padding-bottom: 0.3rem;
+}
 .legenda { margin: 0; font-family: var(--mono); font-size: 0.7rem; color: var(--tinta-2); }
 
 /* ── relatório de ingestão ─────────────────────────────── */

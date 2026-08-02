@@ -43,15 +43,39 @@ existe. Um backend só de leitura funciona sem alteração.
 compara com a própria frase de escape. Se o frontend comparasse texto, ficaria acoplado
 ao idioma e à redação de cada projeto.
 
+**4. Campo novo é campo opcional.** O contrato só cresce de forma aditiva, e cada campo
+novo é renderizado sob um guard: `kind` ausente não desenha selo, `content_html` ausente
+cai no excerpt como texto, `elements` ausente não acrescenta linha ao relatório. O
+markup de um payload 1.2.0 (projetos 1 a 3) é idêntico ao de antes do 1.3.0, byte por
+byte.
+
+## HTML de documento nunca entra cru
+
+Desde o 1.3.0, um hit com `kind=tabela` traz a tabela ORIGINAL em `content_html` —
+HTML extraído de um PDF de terceiro. Ele passa **sempre** por `sanitiza.js`, e é o
+resultado da sanitização, nunca o campo cru, que chega ao único
+`dangerouslySetInnerHTML` do cliente (`Trecho.jsx`). A lista lá é de permissão: sobrevive
+o que uma tabela precisa, e nada mais. A auditoria da regra é um grep:
+
+```bash
+grep -rn dangerouslySetInnerHTML src/     # uma ocorrência, sobre sanitizaHtml
+```
+
 ## Estrutura
 
 ```
 src/
 ├── api.js           única camada que conhece HTTP. Traduz falha em ErroDaApi
 ├── Parametros.jsx   desenha controles a partir do descritor  ← o desacoplamento
-├── App.jsx          estado, abas, exibição de resposta e relatório
+├── App.jsx          estado, abas e exibição de resposta
+├── Trecho.jsx       um hit: fonte, selo de kind, procedência, texto ou tabela
+├── Relatorio.jsx    relatório de ingestão
+├── sanitiza.js      único caminho de HTML para o DOM  ← a regra de segurança
 └── App.css          tema claro e escuro
 ```
+
+`npm test` roda a suíte (vitest + jsdom): sanitização, renderização do trecho e
+aditividade do relatório.
 
 **Regra**: se um dia aparecer `if (nome === "k")` em `Parametros.jsx`, o desacoplamento
 acabou. Parâmetro novo se resolve no `/capabilities` do backend, nunca aqui.
