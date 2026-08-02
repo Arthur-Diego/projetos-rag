@@ -1,0 +1,38 @@
+# Configuracao das ferramentas de qualidade. Nao ha secao [project]: este
+# repositorio e um projeto de estudo executado a partir da raiz, nao um pacote
+# distribuivel. O arquivo existe para que `mypy` e `pytest` rodem SEM ARGUMENTO
+# e verifiquem sempre o mesmo conjunto — verificacao que depende de o operador
+# lembrar da flag certa e verificacao que um dia nao roda.
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "rag",
+    "tests",
+    "composition.py",
+    "ingest.py",
+    "ask.py",
+    "reset.py",
+    "serve.py",
+]
+
+# Obrigatorio: os Protocol das fronteiras externas (ADR-006, secao 6 da
+# guideline de arquitetura) NAO sao verificados em runtime. Sem mypy eles sao
+# comentario.
+disallow_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unused_configs = true
+
+# langchain, unstructured e chromadb nao publicam stubs completos. Ignorar o que
+# vem de fora e a recomendacao da propria guideline; o que se cobra e o codigo
+# deste projeto.
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "smoke: exercita dependencia externa real (particionamento de PDF em disco). Sem custo de API. Desligue com -m 'not smoke'.",
+]

@@ -1,0 +1,162 @@
+{
+  "_comentario": [
+    "Golden set da medição do rag-04, separado por CLASSE DE ALVO (adr-003 da",
+    "sessão de PRD). É a diferença deste projeto para os anteriores: aqui a mesma",
+    "pergunta pode falhar por três motivos estruturalmente distintos, e uma nota",
+    "única não os separa.",
+    "",
+    "  tabela   — a resposta vive numa célula. Promessa CENTRAL do projeto: valor",
+    "             exato. É o critério do guia.",
+    "  texto    — a resposta vive na narrativa. É o que os projetos 1 a 3 já",
+    "             faziam; existe aqui como linha de base, não como novidade.",
+    "  imagem   — a resposta vive num gráfico. Promessa QUALITATIVA (tendência,",
+    "             comparação, sinal), nunca valor exato (adr-003). Não tem âncora:",
+    "             o acerto de recuperação é 'algum hit veio com kind=imagem' e o",
+    "             julgamento da resposta é humano, feito sobre o texto impresso.",
+    "  negativo — a resposta só existe no PDF do BCB, que NUNCA foi indexado. O",
+    "             acerto é a RECUSA. Sem geração não há o que medir aqui.",
+    "",
+    "ANTICIRCULARIDADE (regra herdada do rag-03). As âncoras foram extraídas do PDF",
+    "com `pypdf`, lendo o texto da página, e nunca pelo `unstructured` do próprio",
+    "sistema medido. Usar o pipeline para descobrir o que o pipeline deveria achar",
+    "faria o sistema acertar por definição. `pypdf` é justamente o extrator que o",
+    "rag-04 existe para superar: ele lê o texto da página, inclusive os números",
+    "soltos de dentro das tabelas, mas sem estrutura nenhuma.",
+    "",
+    "A âncora é TRECHO LITERAL, não página (a correção de 28/07 do rag-03: acerto",
+    "por página conta como sucesso um trecho vizinho que não responde nada). O",
+    "campo `pagina` fica só para conferência humana.",
+    "",
+    "POR QUE AS ÂNCORAS DE TABELA SÃO NÚMEROS. A comparação acontece contra o HTML",
+    "que o `hi_res` reconstruiu, e o OCR erra o texto das células com alguma",
+    "frequência ('R$ milhões' virou 'RS milhdes' na Tabela 1). Os NÚMEROS",
+    "sobrevivem, e são o que a pergunta de tabela realmente cobra. Cada âncora",
+    "numérica foi escolhida para existir numa célula e em nenhum parágrafo — assim",
+    "um acerto de classe `tabela` só pode ter vindo da tabela.",
+    "",
+    "T1 e T2 são a MESMA pergunta em duas formulações de propósito. T1 é a forma",
+    "nua do guia; T2 nomeia a empresa e a unidade. A task_04 já tinha observado que",
+    "as duas se comportam diferente neste corpus, e medir só a forma boa esconderia",
+    "isso."
+  ],
+  "corpus": "petrobras-desempenho-3t24.pdf",
+  "fora_do_corpus": "pdfs/fora-do-corpus/bcb-ri-dez2024.pdf",
+  "perguntas": [
+    {
+      "id": "T1",
+      "classe": "tabela",
+      "pergunta": "Qual foi a receita no 3T24?",
+      "ancora": "129.582",
+      "pagina": 5,
+      "criterio_do_guia": true,
+      "nota": "A pergunta-critério do guia, na forma NUA. Tabela 1, linha 'Receita de vendas', coluna 3T24."
+    },
+    {
+      "id": "T2",
+      "classe": "tabela",
+      "pergunta": "Qual foi a receita de vendas da Petrobras no 3T24, em milhões de reais?",
+      "ancora": "129.582",
+      "pagina": 5,
+      "nota": "Mesma célula de T1, com empresa e unidade explícitas. O par T1/T2 isola a formulação."
+    },
+    {
+      "id": "T3",
+      "classe": "tabela",
+      "pergunta": "Quanto a Petrobras investiu em Exploração & Produção no 3T24, em US$ milhões?",
+      "ancora": "3.773",
+      "pagina": 9,
+      "nota": "Tabela 3. O valor aparece só na célula; o parágrafo ao lado arredonda para 'US$ 3,8 bilhões'."
+    },
+    {
+      "id": "T4",
+      "classe": "tabela",
+      "pergunta": "Quanto da dívida financeira da Petrobras estava no mercado bancário em 30/09/2024, em US$ milhões?",
+      "ancora": "7.490",
+      "pagina": 14,
+      "nota": "Tabela 6. Nenhum parágrafo do relatório abre a dívida por mercado: só a tabela responde."
+    },
+    {
+      "id": "T5",
+      "classe": "tabela",
+      "pergunta": "Qual foi a depreciação, depleção e amortização da Petrobras no 3T24?",
+      "ancora": "16.541",
+      "pagina": 15,
+      "nota": "Tabela 7 (reconciliação do EBITDA). Linha que não é repetida em texto nenhum."
+    },
+    {
+      "id": "X1",
+      "classe": "texto",
+      "pergunta": "Por que as despesas operacionais da Petrobras caíram em relação ao 2T24?",
+      "ancora": "adesão à transação tributária",
+      "pagina": 6,
+      "nota": "Parágrafo do resultado consolidado."
+    },
+    {
+      "id": "X2",
+      "classe": "texto",
+      "pergunta": "Qual o vencimento dos títulos que a companhia captou no mercado de capitais internacional?",
+      "ancora": "com vencimento em 2035",
+      "pagina": 13,
+      "nota": "Parágrafo de liquidez e recursos de capital."
+    },
+    {
+      "id": "X3",
+      "classe": "texto",
+      "pergunta": "Qual era o custo médio da dívida da Petrobras em 30/09/2024?",
+      "ancora": "6,6% a.a.",
+      "pagina": 14,
+      "nota": "Parágrafo de indicadores de endividamento."
+    },
+    {
+      "id": "X4",
+      "classe": "texto",
+      "pergunta": "Em que projetos se concentraram os investimentos em Exploração e Produção no 3T24?",
+      "ancora": "Bacia de Santos",
+      "pagina": 9,
+      "nota": "Parágrafo de investimentos. Âncora curta de propósito: o PDF quebra 'pré-sal' com espaço no meio."
+    },
+    {
+      "id": "G1",
+      "classe": "imagem",
+      "pergunta": "No gráfico de destaques do relatório, o EBITDA realizado do 3T24 foi maior ou menor que o do 2T24?",
+      "ancora": "",
+      "pagina": 4,
+      "esperado_qualitativo": "3T24 maior que o 2T24 (63,7 contra 49,7 R$ bilhões no gráfico de barras). Direção, não valor.",
+      "nota": "Julgamento humano sobre o texto da resposta (adr-003): valor aproximado ou recusa são resultados aceitáveis; número exato inventado, não."
+    },
+    {
+      "id": "G2",
+      "classe": "imagem",
+      "pergunta": "Segundo o gráfico de destaques, o resultado líquido realizado no 2T24 foi positivo ou negativo?",
+      "ancora": "",
+      "pagina": 4,
+      "esperado_qualitativo": "Negativo (barra de -2,6 R$ bilhões abaixo da linha). O sinal é o que se cobra.",
+      "nota": "Sinal é informação qualitativa e visível; se a descrição da imagem não o capturou, é limitação registrada, não defeito."
+    },
+    {
+      "id": "G3",
+      "classe": "imagem",
+      "pergunta": "O que o gráfico de barras do relatório mostra sobre o EBITDA sem eventos exclusivos?",
+      "ancora": "",
+      "pagina": 4,
+      "esperado_qualitativo": "Comparação entre 2T24 e 3T24 sem eventos exclusivos (62,3 e 64,4 R$ bilhões). O rótulo 'sem eventos exclusivos' NÃO existe no texto do PDF: só na imagem.",
+      "nota": "É a pergunta que só a metade visual do pipeline pode responder — `pypdf` não extrai esse rótulo de lugar nenhum."
+    },
+    {
+      "id": "N1",
+      "classe": "negativo",
+      "pergunta": "Qual é a meta de inflação fixada pelo CMN para 2025?",
+      "ancora": "",
+      "fonte": "bcb-ri-dez2024.pdf (nunca indexado)",
+      "nota": "Resposta existe apenas no Relatório de Inflação do BCB, que fica em pdfs/fora-do-corpus/. Acerto = recusa."
+    },
+    {
+      "id": "N2",
+      "classe": "negativo",
+      "pergunta": "De quanto em quanto tempo o Copom define a taxa Selic?",
+      "ancora": "",
+      "fonte": "bcb-ri-dez2024.pdf (nunca indexado)",
+      "nota": "Nem 'Copom' nem 'Selic' aparecem uma vez no relatório da Petrobras. Acerto = recusa."
+    }
+  ]
+}

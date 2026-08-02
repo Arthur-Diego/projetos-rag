@@ -1,0 +1,44 @@
+# Versoes fixadas em docs/guidelines/README.md (confirmadas com o autor e conferidas
+# contra o PyPI em 01/08/2026). Instale DENTRO do venv: nao ha pip no sistema.
+#   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+langchain==1.3.14
+langchain-openai==1.4.1
+langchain-community==0.4.2
+python-dotenv==1.2.2
+
+# MultiVectorRetriever e os stores de documentos (BaseStore, LocalFileStore) moram
+# aqui desde a 1.x do langchain. O docstore dos originais (ADR-001) e um
+# LocalFileStore atras dessa interface.
+langchain-classic==1.0.8
+
+# Chroma EM CONTAINER (ADR-001), porta 8002, via HttpClient. Nao embarcado: o guia
+# sugere embarcado, o autor manteve o padrao dos projetos 1 a 3.
+langchain-chroma==1.1.0
+
+# Particionamento hi_res com infer_table_structure e extracao de imagens.
+# FIXADA em 0.24.1 pelo guia: a 0.25.0 saiu depois da conferencia de julho/2026 e
+# esta e a dependencia mais fragil dos dez projetos. NAO subir sem ADR.
+#
+# O extra [pdf] puxa dependencias nativas pesadas (modelo de layout YOLOX, Table
+# Transformer, onnxruntime) e exige, FORA do venv, os pacotes de sistema:
+#   sudo apt install -y poppler-utils tesseract-ocr tesseract-ocr-por
+unstructured[pdf]==0.24.1
+
+# Verificacao de tipos: obrigatoria, porque os Protocol nao sao verificados em
+# runtime. Ver ../docs/guidelines/arquitetura-em-camadas.md secao 6.
+mypy==2.3.0
+
+# API HTTP do contrato compartilhado (../docs/contracts/rag-api.yaml), versao 1.3.0.
+fastapi==0.141.1
+uvicorn==0.52.1
+
+# Testes com dubles: roteamento de elementos por categoria e correspondencia
+# resumo/original por doc_id. Nenhum teste toca a API paga nem o hi_res real
+# (lento demais para suite). Ver docs/guidelines/README.md.
+pytest==9.1.1
+
+# Dependencia REAL da suite: fastapi.testclient e construido sobre httpx. Fixada
+# explicitamente pelo mesmo motivo do rag-03: vir transitivamente pelo SDK da
+# OpenAI e fragil.
+httpx==0.28.1
