@@ -1,0 +1,60 @@
+%% Os dois armazens ligados por doc_id (ADR-001; HLD, secao "Modelo de dados")
+%% Fontes: FDD secoes 4, 5 e 6; HLD v1.0; ADRs 001, 003 e 005.
+%% A ideia inteira do multi-vector cabe numa frase: o que BUSCA bem e o que RESPONDE bem
+%% sao coisas diferentes, entao moram em lugares diferentes e se encontram pelo doc_id.
+%% Assimetria deliberada entre os dois armazens: perder o Chroma custa MINUTOS
+%% (re-embedar a partir do docstore); perder o docstore custa a INGESTAO INTEIRA,
+%% porque o hi_res e o enriquecimento pago teriam que rodar de novo.
+flowchart LR
+    unidade["Unidade da partição<br/>texto agrupado, tabela ou imagem<br/>com doc_id determinístico (ADR-003)"]
+
+    subgraph armazens["Os dois armazéns, ligados por doc_id"]
+        direction TB
+
+        subgraph docstoreBox["Docstore: LocalFileStore em data/docstore/"]
+            direction TB
+            original["StoredOriginal, chaveado por doc_id<br/>kind=texto: o texto cru<br/>kind=tabela: o HTML ÍNTEGRO<br/>kind=imagem: o caminho em data/figures/"]
+            verdade["FONTE DE VERDADE dos conteúdos<br/>é o que chega ao LLM, e só ele"]
+            original --- verdade
+        end
+
+        subgraph chromaBox["Índice: Chroma em container, porta 8002"]
+            direction TB
+            representacao["IndexedRepresentation, o vetor da representação<br/>texto direto, resumo da tabela ou descrição da imagem<br/>metadados: doc_id, kind, page e source"]
+            derivado["ÍNDICE DERIVADO e reconstruível<br/>a partir do docstore, sem rodar hi_res de novo:<br/>bastaria re-embedar"]
+            representacao --- derivado
+        end
+    end
+
+    unidade ==>|"grava PRIMEIRO o original íntegro"| original
+    unidade ==>|"grava DEPOIS a representação"| representacao
+    representacao -->|"doc_id no metadado<br/>é a ÚNICA ligação entre os dois"| original
+
+    pergunta["Pergunta do POST /ask"]
+    prompt["Contexto do prompt<br/>com os originais íntegros"]
+    pergunta -- "embedding e busca densa top-k" --> representacao
+    original -- "resolução por doc_id" --> prompt
+
+    health["GET /health<br/>compara as contagens dos dois armazéns<br/>status=degraded quando divergem<br/>ou quando o docstore está inacessível"]
+    reset["Script CLI de reset<br/>zera a coleção do Chroma e data/docstore/<br/>na MESMA operação, para não deixar metade viva<br/>preserva data/partition/ por padrão (ADR-005)"]
+
+    armazens -.-> health
+    reset -.-> armazens
+
+    ordem["Por que a ordem de escrita é fixa (risco 4):<br/>original PRIMEIRO, representação DEPOIS.<br/>Assim um hit no índice sempre acha o original.<br/>Se um hit vier órfão mesmo assim, ele é descartado com warning<br/>e a consulta segue; a base não devolve 500 por isso."]
+    unidade -.-> ordem
+
+    seletivo["Multi-vector SELETIVO (ADR-002):<br/>texto narrativo é indexado DIRETO, sem resumo.<br/>Resumo e descrição existem só onde o original embeda mal:<br/>tabela vira sopa de números e imagem não vira nada.<br/>Isso diverge do diagrama do guia, que resume tudo."]
+    representacao -.-> seletivo
+
+    classDef fonteVerdade fill:#fff3bf,stroke:#bf8700,stroke-width:3px,color:#111
+    classDef indice fill:#e8f4ff,stroke:#1f6feb,stroke-width:2px,color:#111
+    classDef fluxo fill:#f6f8fa,stroke:#8b949e,color:#111
+    classDef operacao fill:#f3e8ff,stroke:#8250df,stroke-width:2px,color:#111
+    classDef nota fill:#ffe9e9,stroke:#cf222e,stroke-dasharray: 4 4,color:#111
+
+    class original,verdade fonteVerdade
+    class representacao,derivado indice
+    class unidade,pergunta,prompt fluxo
+    class health,reset operacao
+    class ordem,seletivo nota
