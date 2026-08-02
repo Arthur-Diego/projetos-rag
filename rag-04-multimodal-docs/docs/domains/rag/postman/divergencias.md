@@ -1,8 +1,14 @@
 # Divergências — FDD × `rag-api.yaml` 1.2.0
 
+> **RESOLVIDO em 02/08/2026 (task_02 do PRD `pipeline-multimodal`).** O contrato foi
+> publicado em **1.3.0**, de forma estritamente aditiva, e os itens 1 a 7 desta tabela
+> estão fechados; o item 8 fica registrado como não-divergência. O documento é mantido
+> como histórico da etapa 2 do Build Order — o checklist de fechamento está no fim.
+
 FDD: `docs/domains/rag/features/pipeline-multimodal-fdd.md` (v1.0, 2026-08-02).
 Contrato publicado: `../../../../../docs/contracts/rag-api.yaml`, OpenAPI 3.1.0,
-`info.version: 1.2.0` (linha 5).
+`info.version: 1.2.0` (linha 5) — **hoje 1.3.0**. As referências de linha ao yaml nesta
+tabela são as da 1.2.0 e não valem mais depois da publicação.
 
 **Contexto que muda a leitura:** o FDD especifica a versão **1.3.0**, decidida no
 ADR-004 (`docs/adrs/generated/RAG/ADR-004-contrato-compartilhado-1-3-0.md`) como
@@ -43,3 +49,30 @@ inexistente. Esta tabela é a checklist da etapa 2.
   resolve exatamente isto.
 - **8** — mesmo loopback e mesma porta; o próprio contrato admite variação por projeto.
   Registrada por completude.
+
+## Checklist de fechamento (etapa 2 do Build Order)
+
+Publicação da 1.3.0 em 02/08/2026, tudo no mesmo arquivo
+`../../../../../docs/contracts/rag-api.yaml`.
+
+- [x] **1** — `info.version: 1.3.0`, com a seção de changelog `## 1.3.0 — fontes
+      multimodais` no padrão das versões anteriores.
+- [x] **2** — `SearchHit.kind`, opcional, enum `[texto, tabela, imagem]`.
+- [x] **3** — `SearchHit.content_html`, opcional, presente apenas com `kind=tabela`;
+      HTML nunca dentro de `excerpt` (a descrição de `excerpt` agora fixa isso).
+- [x] **4** — `IngestionReport.elements` com `textos`, `tabelas` e `imagens` inteiros,
+      zero explícito quando a categoria não ocorre.
+- [x] **5** (ambiguidade) — o campo do docstore no `/health` chama-se
+      **`docstore_originals`** (integer, opcional). O teste da coleção que hoje aceita
+      qualquer chave contendo `docstore` deve ser apertado para este nome.
+- [x] **6** (ambiguidade) — o 422 do `/ingest` ganhou dois exemplos nomeados: `faixa`
+      (overlap maior que size) e `tipo` (`descrever_imagens` recebendo string). Tipo
+      errado é 422, e a descrição do status diz isso.
+- [x] **7** — nota aditiva na descrição do `POST /ingest`: projeto com ingestão
+      idempotente reconcilia em vez de recriar. O comportamento destrutivo continua
+      sendo o padrão descrito, válido para os projetos 1 a 3.
+- [x] **8** — nada a fazer; não é divergência.
+
+Aditividade auditada na publicação: nenhum campo saiu de `required`, nenhum campo
+existente mudou de tipo, nenhuma rota ou status sumiu. `SearchHit.required` continua
+`[source]` e `IngestionReport.required` continua `[pages, chunks, seconds]`.

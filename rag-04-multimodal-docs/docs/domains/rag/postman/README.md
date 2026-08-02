@@ -20,18 +20,42 @@ linha 449), a ser feita antes do consumidor. As 8 divergências estão em
 | `pipeline-multimodal.postman_environment.json` | `baseUrl`, `accessToken` (não usado), `chromaUrl` (referência para provocar os estados de erro) |
 | `divergencias.md` | FDD × `rag-api.yaml` 1.2.0, item a item |
 
-## Estado: o serviço ainda não existe
+## Estado: executada em 02/08/2026 (task_04)
 
-O projeto é terreno documentado, **sem uma linha de Python**. Não há nada escutando em
-`http://127.0.0.1:8080` e a coleção **não foi executada**. O `newman` está instalado
-nesta máquina (6.2.2), e mesmo assim não foi rodado: sem serviço, toda execução seria
-uma parede de `ECONNREFUSED`, que não é informação sobre nada. Nada foi instalado, nada
-foi subido.
+**`meta/`, `ingest/` e `ask/` verdes: 37 asserções, zero falhas**, contra o serviço em
+`http://127.0.0.1:8080` com o corpus real ingerido (50 unidades, **9 tabelas** detectadas
+pelo `hi_res`). Da pasta `erros/`, os três 422 determinísticos passam; os demais exigem
+estados provocados à mão (tabela mais abaixo).
 
-A coleção é artefato válido do mesmo jeito — importável no Postman, Insomnia ou Bruno —
-e a execução acontece na **validação (Passo 7)**, depois da **etapa 9 do Build Order**
-(camada HTTP: `rag/api/`, `serve.py`, `GET /health`, `GET /capabilities`). A checagem
-contra o schema 1.3.0 depende da **etapa 2** (evolução do yaml).
+Duas correções de dado foram necessárias para a execução, e ambas são do artefato, não
+do serviço:
+
+- `perguntaForaDoCorpus` estava vazia, como o próprio README mandava preencher.
+- **`perguntaTabela` e `k` mudaram, e o motivo é um achado de recuperação.** A pergunta
+  do guia na forma nua — *"Qual foi a receita no 3T24?"* — **não recupera a tabela**:
+  com `k=10` a tabela da página 5 (a que tem a linha `Receita de vendas | 129.582`)
+  aparece só em 7º, atrás de dez trechos de texto narrativo, e a resposta é recusa.
+  Acrescentar "de vendas", "Petrobras" e "em milhões de reais" traz a tabela para 3º com
+  `k=8`, e aí a resposta sai correta e citada.
+
+  Isto é exatamente a **EC-3 da US-006** e o **risco 3 do FDD** (drift resumo↔conteúdo):
+  o resumo indexado descreve a tabela em prosa genérica ("apresenta dados financeiros da
+  Petrobras…"), e a pergunta curta casa melhor com o texto corrido do relatório. Não é
+  defeito do pipeline — o multi-vector funciona, e quando a tabela é recuperada o HTML
+  íntegro chega ao modelo. É medida de RECUPERAÇÃO, e o lugar de quantificá-la é a
+  medição por classe de alvo (US-014, etapa 11 do Build Order).
+
+Evidência do critério 1 da seção 9, do log do servidor:
+
+```
+[contexto] 8 trecho(s), 1 tabela(s) em HTML, 7408 caractere(s) enviados ao modelo
+  3. [tabela] petrobras-desempenho-3t24.pdf p.5 | similaridade 0.6444 | HTML de 2964 caractere(s)
+
+A receita de vendas da Petrobras no 3T24 foi de R$ 129.582 milhões [3].
+```
+
+O valor citado é o conteúdo literal da célula:
+`<tr><td>Receita de vendas</td><td>129.582</td>…</tr>`.
 
 ## Como importar
 
@@ -131,6 +155,10 @@ Dois testes são deliberadamente frouxos, com falha que lista as chaves recebida
 de exigir um nome: a **contagem do docstore** no `/health` (o FDD não nomeia o campo,
 linha 249 — divergência 5) — são lembretes para apertar quando a etapa 2 ou a etapa 9
 fixarem o nome.
+
+**O nome já está fixado:** a task_02 publicou `docstore_originals` na 1.3.0 e a task_04
+o implementou. Os dois testes continuam frouxos (aceitam qualquer chave com `docstore`)
+e podem ser apertados para o nome exato — pendência registrada, não bloqueante.
 
 ## Casos da seção 6 **não** cobertos por HTTP
 

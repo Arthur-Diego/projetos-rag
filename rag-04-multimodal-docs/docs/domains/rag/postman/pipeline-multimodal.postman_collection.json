@@ -8,21 +8,21 @@
   "variable": [
     {
       "key": "perguntaTabela",
-      "value": "Qual foi a receita no 3T24?",
+      "value": "Qual foi a receita de vendas da Petrobras no 3T24, em milhoes de reais?",
       "type": "string",
-      "description": "Pergunta do exemplo de requisicao da secao 5 do FDD (linha 186) e do criterio 1 da secao 9 (linhas 359 e 360): a resposta vive numa celula de tabela."
+      "description": "Pergunta cuja resposta vive numa celula de tabela (criterio 1 da secao 9, linhas 359 e 360). NAO e a forma nua do FDD (linha 186), e o motivo esta no README: \"Qual foi a receita no 3T24?\" nao recupera a tabela (7o lugar com k=10, atras de dez trechos de texto) e a resposta e recusa. E a EC-3 da US-006 e o risco 3 do FDD, drift resumo x conteudo, medido na etapa 11."
     },
     {
       "key": "perguntaForaDoCorpus",
-      "value": "",
+      "value": "Qual foi a taxa Selic meta definida pelo Copom em dezembro de 2019?",
       "type": "string",
       "description": "PREENCHER ANTES DE RODAR o controle negativo: pergunta cuja resposta so existe no PDF do BCB, que nunca e indexado (`pdfs/fora-do-corpus/`, FDD secao 4, linhas 98 e 99; secao 2, linhas 54 e 55). O FDD nao declara o texto exato da pergunta, por isso a variavel nasce vazia."
     },
     {
       "key": "k",
-      "value": "4",
+      "value": "8",
       "type": "string",
-      "description": "Default de `k` (FDD secao 1, linhas 36 a 38; secao 5, linha 258: integer, default 4, faixa 1 a 20, applies_to ask)."
+      "description": "Valor de `k` usado pela colecao. O DEFAULT do contrato continua sendo 4 (FDD secao 1, linhas 36 a 38; secao 5, linha 258: integer, default 4, faixa 1 a 20, applies_to ask), e `/capabilities` publica 4 — a colecao usa 8 porque com 4 a tabela da pagina 5 nao entra nos recuperados neste corpus. Ver README."
     },
     {
       "key": "kForaDeFaixa",
