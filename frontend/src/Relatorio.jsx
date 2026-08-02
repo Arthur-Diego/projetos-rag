@@ -8,8 +8,9 @@
  * **Dentro de `elements`, zero é dado, não ausência.** O contrato exige as três
  * contagens sempre que o objeto existe, justamente porque `tabelas: 0` num
  * relatório financeiro é o sinal de que a detecção não rodou — e some se for
- * confundido com "campo vazio". Por isso o `??` de linha ausente não vale aqui:
- * `dados.elements.tabelas` é exibido como veio.
+ * confundido com "campo vazio". O `?? "—"` compartilhado com as demais linhas é
+ * inofensivo aqui: `0` não é nullish e é exibido como `0`; o travessão só
+ * apareceria se o backend violasse o `required` do próprio objeto.
  */
 export default function Relatorio({ dados }) {
   const linhas = [

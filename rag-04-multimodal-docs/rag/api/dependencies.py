@@ -19,6 +19,8 @@ import chromadb
 from chromadb.api import ClientAPI
 from fastapi import Depends
 from langchain_classic.storage import LocalFileStore
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseChatModel
 
 from .. import config
 from ..config import RagProperties
@@ -35,6 +37,46 @@ from ..service.openai_models import create_chat_model, create_embeddings
 
 #: Clientes do Chroma por endereço. Ver `_client`.
 _CLIENTS: dict[str, ClientAPI] = {}
+
+#: Caches de processo dos demais clientes estáveis, no mesmo molde de
+#: `_CLIENTS`: embedador, modelos de chat e armazém de arquivos. Cada
+#: `OpenAIEmbeddings`/`ChatOpenAI` carrega um pool httpx próprio — construir
+#: por requisição descartaria a conexão TLS a cada chamada. A chave deriva das
+#: properties: se o .env mudar (e `config.load` relê com `override=True`), a
+#: chave muda e o cliente novo é criado; o antigo só ocupa memória.
+_EMBEDDINGS: dict[tuple[str, str], Embeddings] = {}
+_CHAT_MODELS: dict[tuple[str, str], BaseChatModel] = {}
+_STORES: dict[str, LocalFileStore] = {}
+
+
+def embeddings_for(properties: RagProperties) -> Embeddings:
+    """O embedador, um por (modelo, chave) e por processo."""
+    key = (properties.embedding_model, properties.openai_api_key)
+    if key not in _EMBEDDINGS:
+        _EMBEDDINGS[key] = create_embeddings(properties)
+    return _EMBEDDINGS[key]
+
+
+def chat_model_for(properties: RagProperties, model: str) -> BaseChatModel:
+    """Um cliente de chat por (modelo, chave) e por processo.
+
+    As rotas usam este, e não `create_chat_model` direto: é o que mantém o
+    invariante de escopo de processo também no caminho da ingestão, onde a
+    facade é montada por requisição mas os clientes não podem ser.
+    """
+    key = (model, properties.openai_api_key)
+    if key not in _CHAT_MODELS:
+        _CHAT_MODELS[key] = create_chat_model(properties, model)
+    return _CHAT_MODELS[key]
+
+
+def _store(properties: RagProperties) -> LocalFileStore:
+    """O armazém de arquivos dos originais, um por diretório e por processo."""
+    key = str(properties.docstore_dir)
+    if key not in _STORES:
+        properties.docstore_dir.mkdir(parents=True, exist_ok=True)
+        _STORES[key] = LocalFileStore(properties.docstore_dir)
+    return _STORES[key]
 
 
 def provide_properties() -> RagProperties:
@@ -89,7 +131,7 @@ def provide_vectors(properties: Properties) -> VectorRepository:
     return ChromaVectorRepository(
         client=_client(properties),
         collection=properties.collection,
-        embeddings=create_embeddings(properties),
+        embeddings=embeddings_for(properties),
     )
 
 
@@ -98,8 +140,7 @@ Vectors = Annotated[VectorRepository, Depends(provide_vectors)]
 
 def provide_docstore(properties: Properties) -> DocstoreRepository:
     """O armazém dos originais: a fonte de verdade (ADR-001)."""
-    properties.docstore_dir.mkdir(parents=True, exist_ok=True)
-    return FileDocstoreRepository(LocalFileStore(properties.docstore_dir))
+    return FileDocstoreRepository(_store(properties))
 
 
 Docstore = Annotated[DocstoreRepository, Depends(provide_docstore)]
@@ -109,7 +150,7 @@ Presenter = Annotated[JsonPresenter, Depends(JsonPresenter)]
 
 def provide_generation(properties: Properties) -> GenerationService:
     """O gerador de respostas. Trocar de provedor mexe aqui e em `composition`."""
-    return OpenAiGenerationService(create_chat_model(properties, properties.chat_model))
+    return OpenAiGenerationService(chat_model_for(properties, properties.chat_model))
 
 
 Generation = Annotated[GenerationService, Depends(provide_generation)]

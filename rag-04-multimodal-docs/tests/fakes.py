@@ -21,11 +21,17 @@ from rag.exceptions import ServiceUnavailableException
 
 
 class FakeDocstore:
-    """Docstore em memória, no contrato do `DocstoreRepository`."""
+    """Docstore em memória, no contrato do `DocstoreRepository`.
 
-    def __init__(self) -> None:
+    `fail_on_count` simula docstore inacessível em disco (permissão, volume
+    fora): `OSError`, e não a exceção de domínio, porque é exatamente o tipo
+    cru que o `/health` precisa provar que traduz em `degraded`.
+    """
+
+    def __init__(self, fail_on_count: bool = False) -> None:
         self.units: dict[str, DocumentUnit] = {}
         self.puts = 0
+        self.fail_on_count = fail_on_count
 
     def known(self, doc_ids: list[str]) -> set[str]:
         return {doc_id for doc_id in doc_ids if doc_id in self.units}
@@ -41,6 +47,8 @@ class FakeDocstore:
         }
 
     def count(self) -> int:
+        if self.fail_on_count:
+            raise OSError("falha injetada de I/O no docstore")
         return len(self.units)
 
     def reset(self) -> int:
@@ -63,13 +71,16 @@ class FakeVectors:
     hit órfão impossível de escrever.
     """
 
-    def __init__(self, fail_on_add: bool = False) -> None:
+    def __init__(self, fail_on_add: bool = False, fail_on_count: bool = False) -> None:
         self.units: dict[str, DocumentUnit] = {}
         self.fail_on_add = fail_on_add
+        self.fail_on_count = fail_on_count
         self.matches: list[IndexMatch] = []
         self.searches = 0
 
     def count(self) -> int:
+        if self.fail_on_count:
+            raise ServiceUnavailableException("falha injetada na contagem do índice")
         return len(self.units)
 
     def add(self, units: list[DocumentUnit]) -> None:
@@ -77,6 +88,9 @@ class FakeVectors:
             raise ServiceUnavailableException("falha injetada na gravação vetorial")
         for unit in units:
             self.units[unit.doc_id] = unit
+
+    def known(self, doc_ids: list[str]) -> set[str]:
+        return {doc_id for doc_id in doc_ids if doc_id in self.units}
 
     def search(self, query: str, k: int) -> list[IndexMatch]:
         self.searches += 1

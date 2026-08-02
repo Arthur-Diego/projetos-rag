@@ -66,6 +66,19 @@ def test_hit_orfao_e_descartado_com_warning_e_a_consulta_segue() -> None:
     assert any("órfão(s)" in line and "bbb" in line for line in log.lines)
 
 
+def test_tabela_sem_html_estrutural_nao_publica_content_html() -> None:
+    """Fallback do roteamento: texto plano nunca viaja em `content_html`."""
+    com_html = _unit("aaa", kind="tabela")
+    sem_html = _unit("bbb", kind="tabela")._replace(content_is_html=False)
+    vectors, docstore = _armazens([com_html, sem_html], [com_html, sem_html])
+
+    result = RetrievalService(vectors, docstore, k=4).retrieve("pergunta")
+
+    por_id = {hit.excerpt: hit for hit in result.hits}
+    assert por_id[com_html.representation].content_html == com_html.content
+    assert por_id[sem_html.representation].content_html is None
+
+
 def test_consulta_com_hit_orfao_responde_normalmente() -> None:
     """A outra metade do T4.2: a resposta sai, com os hits que sobraram."""
     vivo, orfao = _unit("aaa"), _unit("bbb")

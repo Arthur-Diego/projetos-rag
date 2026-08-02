@@ -92,6 +92,10 @@ def _decode(raw: bytes) -> DocumentUnit | None:
             source=body["source"],
             page=int(body["page"]),
             figure_path=body.get("figure_path"),
+            # `True` para registros gravados antes do campo existir: o
+            # comportamento deles era publicar `content_html`, e a releitura
+            # não pode mudar o que uma ingestão já paga produziu.
+            content_is_html=bool(body.get("content_is_html", True)),
         )
     except Exception:
         return None

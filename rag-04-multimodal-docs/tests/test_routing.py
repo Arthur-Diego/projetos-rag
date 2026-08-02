@@ -89,6 +89,27 @@ def test_tabela_vira_unidade_propria_com_o_html(
     assert tabelas[0].page == 2
     # A representação fica VAZIA: preenchê-la é o estágio pago (ADR-002).
     assert tabelas[0].representation == ""
+    assert tabelas[0].content_is_html is True
+
+
+def test_tabela_sem_html_e_marcada_para_nao_viajar_em_content_html(
+    tmp_path: Path,
+) -> None:
+    """Fallback sem `text_as_html`: o conteúdo é texto plano, e o contrato
+    define `content_html` como o HTML original — a marcação é o que faz o hit
+    degradar para `excerpt` em vez de mentir estrutura."""
+    detectada_sem_estrutura = Table(
+        text="Receita 129,6 EBITDA 61,7", metadata=_meta(5)
+    )
+
+    units = ElementRoutingService(tmp_path / "figuras").route(
+        [detectada_sem_estrutura], source="relatorio.pdf"
+    )
+
+    assert len(units) == 1
+    assert units[0].kind == "tabela"
+    assert units[0].content == "Receita 129,6 EBITDA 61,7"
+    assert units[0].content_is_html is False
 
 
 def test_tabela_e_imagem_nunca_sao_agrupadas_com_o_texto(

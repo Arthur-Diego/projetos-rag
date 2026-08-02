@@ -117,6 +117,22 @@ class IngestionFacade:
                 + ", ".join(sorted(known)[:5])
                 + (" e outros" if len(known) > 5 else "")
             )
+            # Idempotência olha os DOIS armazéns: original no docstore com
+            # representação ausente no índice é retomada de falha parcial
+            # (EC-1 da US-003) — o que sobrou do lado certo, na ordem do
+            # `IndexingService`. Re-indexar a partir do original persistido
+            # repaga só o embedding, nunca o enriquecimento (ADR-003).
+            known_ids = sorted(known)
+            in_index = self._vectors.known(known_ids)
+            pending = [doc_id for doc_id in known_ids if doc_id not in in_index]
+            if pending:
+                recovered = self._docstore.get(pending)
+                self._log.stage(
+                    f"[retomada] {len(recovered)} unidade(s) com original no "
+                    "docstore e sem representação no índice; re-indexando sem "
+                    "repagar enriquecimento"
+                )
+                self._indexing.index(list(recovered.values()))
 
         enriched = self._enrichment.enrich(novos, descrever_imagens)
         self._indexing.index(enriched)

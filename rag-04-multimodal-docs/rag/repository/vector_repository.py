@@ -67,6 +67,16 @@ class VectorRepository(Protocol):
         """
         ...
 
+    def known(self, doc_ids: list[str]) -> set[str]:
+        """Quais destes ids JÁ têm representação no índice.
+
+        É a metade vetorial da pergunta que o docstore responde com o `known`
+        dele. A ingestão precisa das DUAS: original presente e representação
+        ausente é retomada de falha parcial (EC-1 da US-003), e decidir só pelo
+        docstore deixaria esse estado irrecuperável sem reset.
+        """
+        ...
+
     def reset(self) -> int:
         """Apaga a coleção inteira e devolve quantas representações havia.
 
@@ -199,6 +209,18 @@ class ChromaVectorRepository:
             IndexMatch(doc_id=str(doc_id), distance=float(distance))
             for doc_id, distance in zip(ids, distances, strict=True)
         ]
+
+    def known(self, doc_ids: list[str]) -> set[str]:
+        if not doc_ids:
+            return set()
+        handle = self._handle()
+        try:
+            # `include=[]`: só os ids interessam; trazer documento ou metadado
+            # seria pagar I/O por informação que esta pergunta não usa.
+            found = handle.get(ids=doc_ids, include=[])
+        except Exception as e:
+            raise self._unavailable(e) from e
+        return {str(doc_id) for doc_id in (found.get("ids") or [])}
 
     def reset(self) -> int:
         """Apaga a coleção e devolve quantas representações ela tinha.

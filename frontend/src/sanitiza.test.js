@@ -66,6 +66,19 @@ describe("sanitizaHtml", () => {
     expect(limpo).not.toContain("href");
   });
 
+  // As duas exceções do DOMPurify que ALLOWED_ATTR não cobre, cravadas para
+  // não regredirem em silêncio: data-* bloqueado, aria-* permitido.
+  it("bloqueia data-* e mantém aria-*", () => {
+    const limpo = sanitizaHtml(
+      '<table><tr><td data-x="1" aria-label="receita" colspan="2">129,6</td></tr></table>',
+    );
+
+    expect(limpo).not.toContain("data-x");
+    expect(limpo).toContain('aria-label="receita"');
+    expect(limpo).toContain('colspan="2"');
+    expect(limpo).toContain("129,6");
+  });
+
   it("degrada para vazio em entrada ausente ou não textual", () => {
     expect(sanitizaHtml(undefined)).toBe("");
     expect(sanitizaHtml(null)).toBe("");

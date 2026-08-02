@@ -168,6 +168,9 @@ class ElementRoutingService:
                     representation="",
                     source=source,
                     page=page_of(table),
+                    # No fallback sem `text_as_html`, o content é texto plano e
+                    # NÃO pode viajar em `content_html` (ver o modelo).
+                    content_is_html=bool(html and html.strip()),
                 )
             )
         return units

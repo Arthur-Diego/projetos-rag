@@ -91,9 +91,20 @@ class OpenAiImageDescriptionService:
         if not figures:
             return []
 
-        prompts: list[LanguageModelInput] = [
-            [self._message(figure)] for figure in figures
-        ]
+        try:
+            # A leitura dos arquivos fica DENTRO do try: figura apagada entre o
+            # roteamento e este ponto é falha de I/O local, e a mensagem tem
+            # que dizer isso — mandar o operador conferir a API de visão por um
+            # arquivo sumido apontaria para o lugar errado.
+            prompts: list[LanguageModelInput] = [
+                [self._message(figure)] for figure in figures
+            ]
+        except OSError as e:
+            raise ServiceUnavailableException(
+                f"figura ilegível em disco ({type(e).__name__}: {e}).\n"
+                "       NÃO é a API de visão: confira data/figures/. Se o\n"
+                "       arquivo sumiu, reingira para reextrair as figuras."
+            ) from e
         try:
             responses = self._model.batch(
                 prompts, config={"max_concurrency": self._max_concurrency}

@@ -151,5 +151,12 @@ class RetrievalService:
             kind=unit.kind,
             excerpt=unit.representation,
             score=1.0 - match.distance,
-            content_html=unit.content if unit.kind == "tabela" else None,
+            # Também exige `content_is_html`: tabela detectada sem estrutura
+            # tem texto plano no `content`, e o contrato define `content_html`
+            # como o HTML original — sem ele, o hit degrada para `excerpt`.
+            content_html=(
+                unit.content
+                if unit.kind == "tabela" and unit.content_is_html
+                else None
+            ),
         )

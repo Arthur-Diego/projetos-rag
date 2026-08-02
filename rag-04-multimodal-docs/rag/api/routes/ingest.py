@@ -20,11 +20,17 @@ from ...repository.pdf_partitioner import FilePartitionCache, UnstructuredPartit
 from ...service.enrichment_service import EnrichmentService
 from ...service.image_description_service import OpenAiImageDescriptionService
 from ...service.indexing_service import IndexingService
-from ...service.openai_models import create_chat_model
 from ...service.partition_service import PartitionService
 from ...service.routing_service import ElementRoutingService
 from ...service.table_summary_service import TableSummaryService
-from ..dependencies import Docstore, Presenter, Properties, Vectors, read_bool
+from ..dependencies import (
+    Docstore,
+    Presenter,
+    Properties,
+    Vectors,
+    chat_model_for,
+    read_bool,
+)
 from ..schemas import IngestRequest
 
 router = APIRouter()
@@ -76,10 +82,10 @@ def ingest(
         vectors=vectors,
         enrichment=EnrichmentService(
             summaries=TableSummaryService(
-                create_chat_model(properties, properties.chat_model)
+                chat_model_for(properties, properties.chat_model)
             ),
             descriptions=OpenAiImageDescriptionService(
-                create_chat_model(properties, properties.vision_model)
+                chat_model_for(properties, properties.vision_model)
             ),
             log=log,
         ),

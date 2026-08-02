@@ -152,7 +152,10 @@ def load(**overrides: Any) -> RagProperties:
             `CHROMA_PORT` não for numérica ou se `PARTITION_STRATEGY` trouxer
             valor fora do conjunto aceito.
     """
-    load_dotenv(ROOT / ".env")
+    # `override=True`: sem ele, a primeira carga fixa as chaves em `os.environ`
+    # e edições posteriores do .env seriam ignoradas — o servidor promete
+    # reler a cada requisição, e a promessa tem que ser verdadeira.
+    load_dotenv(ROOT / ".env", override=True)
 
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:

@@ -87,7 +87,7 @@ class QueryFacade:
                 "[geração] pulada: nenhum trecho resolvido, recusa direta "
                 f"({retrieval.discarded} hit(s) órfão(s) descartado(s))"
             )
-            return self._refusal(search_s, retrieval.docstore_s)
+            return self._refusal(search_s, retrieval.dense_s, retrieval.docstore_s)
 
         marker = time.perf_counter()
         text = self._generation.generate(self._prompts.build(question, retrieval.hits))
@@ -116,11 +116,13 @@ class QueryFacade:
         )
 
     @staticmethod
-    def _refusal(search_s: float, docstore_s: float) -> Answer:
+    def _refusal(search_s: float, dense_s: float, docstore_s: float) -> Answer:
         """Recusa sem gastar geração, quando não há o que enviar ao modelo.
 
         Os tempos dos estágios que RODARAM continuam sendo reportados: a busca
-        aconteceu e custou uma embedagem. `generation_s` vale zero porque o
+        aconteceu e custou uma embedagem, e `dense_s` é o valor MEDIDO pelo
+        retrieval — recalculá-lo por subtração embutiria o overhead de loop e
+        log num estágio que não o gastou. `generation_s` vale zero porque o
         estágio realmente não rodou, e é a única leitura honesta disso.
         """
         empty: tuple[SearchHit, ...] = ()
@@ -130,7 +132,7 @@ class QueryFacade:
             hits=empty,
             timings={
                 "search_s": search_s,
-                "dense_s": search_s - docstore_s,
+                "dense_s": dense_s,
                 "docstore_s": docstore_s,
                 "generation_s": 0.0,
             },

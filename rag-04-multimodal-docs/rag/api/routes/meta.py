@@ -36,18 +36,33 @@ def health(
     `indexed_chunks`: é a comparação dos dois que denuncia o órfão.
     """
     indexed = vectors.count()
-    originals = docstore.count()
-    evidence = HealthChecker(properties).synchrony(indexed, originals)
+    try:
+        originals: int | None = docstore.count()
+    except OSError:
+        # Docstore inacessível (permissão, disco) é `degraded` com evidência,
+        # nunca 500: a seção 5 do FDD reserva o `degraded` exatamente para
+        # isto, e o serviço está de pé — o relatório é o produto desta rota.
+        originals = None
+
+    if originals is None:
+        evidence: str | None = (
+            f"o docstore em '{properties.docstore_dir}' não respondeu à "
+            "contagem. Sem ele nenhum original é resolvível: todo hit da "
+            "consulta seria descartado. Confira permissão e disco."
+        )
+    else:
+        evidence = HealthChecker(properties).synchrony(indexed, originals)
 
     body = {
         "status": STATUS_OK if evidence is None else STATUS_DEGRADED,
         "project": CAPABILITIES["project"],
         "collection": properties.collection,
         "indexed_chunks": indexed,
-        "docstore_originals": originals,
         "embedding_model": properties.embedding_model,
         "embedding_dimensions": properties.embedding_dimensions,
     }
+    if originals is not None:
+        body["docstore_originals"] = originals
     if evidence is not None:
         # A evidência é o que separa um diagnóstico de um adjetivo. `degraded`
         # sozinho não diz qual lado está sobrando, e a receita muda conforme

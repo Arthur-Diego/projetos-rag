@@ -92,6 +92,28 @@ def test_contagens_divergentes_reportam_degraded_com_evidencia(tmp_path: Path) -
     assert "reset.py" in body["degraded_reason"]
 
 
+def test_docstore_inacessivel_e_degraded_e_nao_500(tmp_path: Path) -> None:
+    """Seção 5 do FDD: docstore que não responde é `degraded` com evidência.
+
+    `OSError` cru (permissão, disco) está fora da hierarquia de domínio; sem a
+    tradução na rota ele viraria 500 sem formato `Problem` — e o serviço ESTÁ
+    de pé, o relatório é o produto desta rota.
+    """
+    app = _app(tmp_path, ["a"], [])
+    quebrado = FakeDocstore(fail_on_count=True)
+    app.dependency_overrides[dependencies.provide_docstore] = lambda: quebrado
+
+    response = TestClient(app).get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert "docstore" in body["degraded_reason"]
+    assert "docstore_originals" not in body, (
+        "contagem que não existe é omitida, nunca inventada"
+    )
+
+
 def test_docstore_a_frente_do_indice_tambem_e_degraded(tmp_path: Path) -> None:
     """Ingestão que parou no meio: original gravado, representação não.
 

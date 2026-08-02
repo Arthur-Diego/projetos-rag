@@ -145,7 +145,12 @@ paths:
                       projetos que não fazem busca léxica.
                   docstore_originals:
                     type: integer
-                    example: 58
+                    # Igual ao example de `indexed_chunks` DE PROPÓSITO: os
+                    # exemplos por campo compõem uma resposta, e como a própria
+                    # descrição abaixo manda comparar os dois, exemplos
+                    # divergentes descreveriam um sistema degradado com
+                    # `status: ok` implícito.
+                    example: 617
                     description: |
                       Opcional, desde 1.3.0. Quantos originais o segundo armazém
                       guarda, em projetos que separam o que é indexado do que é

@@ -38,6 +38,15 @@ const TAGS_PERMITIDAS = [
 const ATRIBUTOS_PERMITIDOS = ["colspan", "rowspan", "scope", "headers", "abbr"];
 
 /**
+ * Duas exceções do DOMPurify que `ALLOWED_ATTR` NÃO cobre e precisam de
+ * decisão explícita: `data-*` e `aria-*` passam por padrão mesmo com a lista
+ * definida. `data-*` fica bloqueado — é canal de contrabando sem função numa
+ * tabela. `aria-*` fica permitido, deliberadamente: atributos de acessibilidade
+ * não executam nada e uma tabela extraída pode carregá-los legitimamente.
+ */
+const EXCECOES = { ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: true };
+
+/**
  * Devolve o HTML seguro para `dangerouslySetInnerHTML`, ou `""`.
  *
  * Falha FECHADO: sem DOM (render no servidor, teste sem jsdom) o DOMPurify
@@ -51,5 +60,6 @@ export function sanitizaHtml(html) {
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: TAGS_PERMITIDAS,
     ALLOWED_ATTR: ATRIBUTOS_PERMITIDOS,
+    ...EXCECOES,
   });
 }

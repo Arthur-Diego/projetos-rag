@@ -49,6 +49,12 @@ class DocumentUnit(NamedTuple):
     source: str
     page: int
     figure_path: str | None = None
+    #: Só significa algo para `kind=tabela`: `False` quando o Table Transformer
+    #: não devolveu `text_as_html` e o `content` é o texto plano de fallback.
+    #: É o que impede texto sem estrutura de viajar em `content_html`, campo
+    #: que o contrato 1.3.0 define como "o HTML original" — o hit degrada para
+    #: `excerpt`, o mesmo caminho que o frontend já trata (EC-3 da US-010).
+    content_is_html: bool = True
 
 
 class ElementCounts(NamedTuple):

@@ -14,6 +14,7 @@ chunk para OBTER MENOS INFORMAÇÃO do que já se tinha de graça.
 from pathlib import Path
 
 from ..domain.models import DocumentUnit
+from ..exceptions import PartitionFailedException
 from .image_description_service import ImageDescriptionService
 from .ingestion_log import IngestionLog, NullIngestionLog
 from .table_summary_service import TableSummaryService
@@ -105,7 +106,18 @@ class EnrichmentService:
             return []
 
         self._log.stage(f"[enriquecimento] descrevendo {len(images)} imagem(ns)")
-        figures = [Path(unit.figure_path or "") for unit in images]
+        sem_figura = [unit.doc_id for unit in images if not unit.figure_path]
+        if sem_figura:
+            # Falha clara em vez de `Path("")`: unidade de imagem sem arquivo é
+            # estado inconsistente do roteamento, e mascará-lo com um caminho
+            # vazio produziria um erro de I/O sem relação com a causa.
+            raise PartitionFailedException(
+                "unidade(s) de imagem sem figure_path: "
+                + ", ".join(sem_figura[:3])
+                + (" e outras" if len(sem_figura) > 3 else "")
+                + " — estado inconsistente do roteamento; reingira o corpus"
+            )
+        figures = [Path(unit.figure_path) for unit in images if unit.figure_path]
         descriptions = self._descriptions.describe(figures)
 
         enriched = []

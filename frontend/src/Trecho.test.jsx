@@ -113,6 +113,16 @@ describe("Trecho com kind=tabela", () => {
 });
 
 describe("Trecho com os demais kinds", () => {
+  // US-010.AC-3 — o kind=texto explícito é caminho próprio (está em
+  // KINDS_CONHECIDOS), distinto do kind ausente do payload 1.2.0.
+  it("kind=texto mostra o trecho como texto, com selo", () => {
+    const dom = renderiza({ source: "a.pdf", kind: "texto", excerpt: "A produção cresceu no trimestre." });
+
+    expect(dom.querySelector("table")).toBeNull();
+    expect(dom.querySelector(".trecho-texto").textContent).toBe("A produção cresceu no trimestre.");
+    expect(dom.querySelector(".selo-kind").textContent).toBe("texto");
+  });
+
   it("kind=imagem mostra a descrição como texto, com selo", () => {
     const dom = renderiza({ source: "a.pdf", kind: "imagem", excerpt: "Gráfico de barras da receita." });
 
