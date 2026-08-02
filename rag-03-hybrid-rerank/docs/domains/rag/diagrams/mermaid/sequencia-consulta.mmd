@@ -1,0 +1,109 @@
+%% Turno completo de consulta, do entrypoint ate a resposta (FDD secoes 4 e 7)
+%% Conferido contra rag/ apos o ADR-008 e o ADR-009: o RetrievalService fala com os dois
+%% servicos de busca, e sao ELES que falam com os repositorios.
+%% As notas marcam onde cada tempo e medido e por quem.
+sequenceDiagram
+    autonumber
+    actor usuario as Usuário
+    participant entry as Entrypoint ask, chat ou serve
+    participant facade as QueryFacade
+    participant rewrite as QueryRewriteService
+
+    box rgb(232,244,255) Pacote do funil, rag/service/retrieval/
+        participant retrieval as RetrievalService
+        participant dense as DenseSearchService
+        participant keywordSvc as KeywordSearchService
+        participant fusion as FusionService
+        participant reranker as RerankService
+    end
+
+    box rgb(246,248,250) Camada repository
+        participant vector as VectorRepository
+        participant keywordRepo as KeywordRepository
+    end
+
+    participant prompt as PromptBuilder
+    participant gen as GenerationService
+    participant cita as CitationResolver
+
+    usuario->>entry: pergunta, transcrição e opções
+    entry->>facade: ask com pergunta, histórico e opções
+    activate facade
+
+    facade->>rewrite: decide com pergunta e histórico
+    activate rewrite
+    rewrite-->>facade: pergunta resolvida
+    deactivate rewrite
+    Note over facade,rewrite: tempo rewrite_s, medido pela QueryFacade
+
+    Note over facade,retrieval: ADR-007: a QueryFacade continua medindo search_s, o TOTAL do estágio,<br/>e deixa de medir o que acontece por dentro dele.<br/>A decomposição vem no RetrievalResult, medida por quem sabe o que aconteceu.
+    facade->>retrieval: retrieve com a pergunta resolvida
+    activate retrieval
+
+    Note over retrieval: faixas de k, candidates e rrf_k já foram validadas<br/>na CONSTRUÇÃO do serviço, não aqui
+
+    retrieval->>dense: search com a pergunta e candidates
+    activate dense
+    dense->>vector: search, DELEGAÇÃO PURA sem política, ADR-009
+    activate vector
+    vector-->>dense: até candidates hits densos, com distance
+    deactivate vector
+    dense-->>retrieval: mesma lista, sem alteração
+    deactivate dense
+    Note over retrieval,vector: tempo dense_s, medido pelo RetrievalService.<br/>O caminho denso é SEMPRE executado.
+
+    alt hibrida ligado, padrão
+        retrieval->>keywordSvc: search com a pergunta e candidates
+        activate keywordSvc
+        keywordSvc->>keywordRepo: search, DELEGAÇÃO PURA sem política, ADR-009
+        activate keywordRepo
+        keywordRepo-->>keywordSvc: até candidates hits por BM25, sem distance
+        deactivate keywordRepo
+        keywordSvc-->>retrieval: mesma lista, sem alteração
+        deactivate keywordSvc
+        Note over retrieval,keywordRepo: tempo keyword_s, medido pelo RetrievalService
+    else hibrida desligado
+        Note over retrieval,keywordRepo: caminho BM25 pulado, keyword_s fica AUSENTE
+    end
+
+    retrieval->>fusion: fuse com os rankings ROTULADOS e rrf_k
+    activate fusion
+    fusion-->>retrieval: candidatos únicos, deduplicados por doc_id e ordenados por RRF<br/>cada um com score e provenance preenchidos
+    deactivate fusion
+    Note over retrieval,fusion: tempo fusion_s, medido pelo RetrievalService.<br/>Função pura: recebe listas e devolve lista.
+
+    alt rerank ligado, padrão
+        retrieval->>reranker: rerank com pergunta, candidatos fundidos e top_n igual a k
+        activate reranker
+        reranker-->>retrieval: top k reordenado pelo cross encoder<br/>score vira o do reordenador, o da fusão fica em provenance.rrf_score
+        deactivate reranker
+        Note over retrieval,reranker: tempo rerank_s, medido pelo RetrievalService
+    else rerank desligado
+        retrieval->>retrieval: corta os fundidos em k
+        Note over retrieval,reranker: rerank_s fica AUSENTE, nunca zero
+    end
+
+    retrieval-->>facade: RetrievalResult com hits finais e os quatro tempos
+    deactivate retrieval
+
+    facade->>prompt: numera o contexto com fonte e página
+    activate prompt
+    prompt-->>facade: prompt com os trechos numerados
+    deactivate prompt
+    Note over facade,prompt: a numeração acontece depois do funil,<br/>e nada reordena a partir daqui
+
+    facade->>gen: gera a resposta
+    activate gen
+    gen-->>facade: texto com marcações de citação
+    deactivate gen
+    Note over facade,gen: tempo generation_s, medido pela QueryFacade
+
+    facade->>cita: resolve as citações por referência explícita
+    activate cita
+    cita-->>facade: citações com fonte, página e trecho
+    deactivate cita
+
+    facade-->>entry: Answer com texto, hits, citações e tempos
+    deactivate facade
+    Note over entry: search_s é o TOTAL do estágio de recuperação,<br/>decomposto por dense_s, keyword_s, fusion_s e rerank_s:<br/>somar os cinco conta a recuperação duas vezes
+    entry-->>usuario: resposta apresentada, com procedência por trecho

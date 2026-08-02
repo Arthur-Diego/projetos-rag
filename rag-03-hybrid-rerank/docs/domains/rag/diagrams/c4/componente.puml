@@ -1,0 +1,170 @@
+@startuml componente
+!pragma charset UTF-8
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.10.0/C4_Component.puml
+
+LAYOUT_TOP_DOWN()
+
+title C3 • Componentes do pacote rag/ - Funil de recuperação híbrido (rag-03-hybrid-rerank)
+
+Container_Boundary(pacote, "rag/") {
+
+  Component(api, "rag/api/", "FastAPI", "app, routes/, schemas, dependencies, descriptor, error_handlers. Publica os quatro parâmetros novos em /capabilities e traduz exceção de domínio em status. O provedor do reranker tem escopo de processo.")
+
+  Component(queryFacade, "QueryFacade", "facade", "Caso de uso da consulta. INALTERADA EM ORQUESTRAÇÃO: mesmos estágios, mesma ordem, sem saber que a recuperação virou funil. Deixa de cronometrar a busca e passa a repassar os tempos medidos por dentro.")
+  Component(ingestionFacade, "IngestionFacade", "facade", "Caso de uso da indexação. Conta o índice anterior ANTES de destruir; a ordem conta, checa, destrói, lê e grava é herdada e testada.")
+
+  Boundary(funil, "service/retrieval/", "pacote") {
+    Component(retrieval, "RetrievalService", "service", "Dono do funil e da política: valida faixas e a relação k <= candidates, dispara os dois caminhos, entrega os rankings à fusão, passa os fundidos ao rerank e corta em k. Orquestra e não calcula. Expõe keyword_only(), diagnóstico do critério 8.")
+    Component(dense, "DenseSearchService", "service", "Encapsula o caminho denso e expõe a contagem do índice. DELEGA ao VectorRepository sem acrescentar política. Dois métodos, porque o repositório denso é o dono do índice.")
+    Component(keywords, "KeywordSearchService", "service", "Encapsula o caminho léxico. DELEGA ao KeywordRepository sem acrescentar política. Um método só: apenas consulta o índice que o outro criou.")
+    Component(fusion, "FusionService", "service", "Reciprocal Rank Fusion como função pura: recebe rankings rotulados, devolve ranking fundido e deduplicado, com score e provenance preenchidos. Classe concreta, sem Protocol e sem dependência nenhuma.")
+    Component(rerank, "RerankService", "service (Protocol)", "Pontua cada par pergunta e candidato com o cross encoder e devolve os top_n. Implementação CrossEncoderRerankService, local em sentence-transformers, na CPU.")
+  }
+
+  Component(rewrite, "QueryRewriteService", "service", "Inalterado, e fora do pacote do funil de propósito: é o estágio da PERGUNTA. O funil recebe a query já resolvida e nunca vê a conversa.")
+  Component(prompts, "PromptBuilder", "service", "Inalterado. Numera os trechos finais com fonte e página coladas. Passa a receber trechos escolhidos por precisão, não por proximidade.")
+  Component(citations, "CitationResolver", "service", "Inalterado. Resolve os [n] contra a mesma lista numerada, nunca pela posição em hits.")
+  Component(generation, "GenerationService", "service (Protocol)", "Fronteira com o LLM. Um adaptador, dois chamadores: reescrita e resposta.")
+  Component(chunking, "ChunkingService", "service (Protocol)", "Divisão recursiva preservando fonte e página.")
+  Component(health, "HealthChecker", "service", "Consulta /_cluster/health, e NÃO a raiz: a raiz responde 200 com o cluster em vermelho. Vermelho reprova, amarelo passa. Confere também o tipo do campo de texto do índice, além da dimensão do vetor.")
+
+  Component(vectorRepo, "VectorRepository", "repository (Protocol)", "Busca kNN densa, recria o índice com mapping explícito e expõe contagem, dimensão e text_field_analyzed(). Adaptador Elasticsearch.")
+  Component(keywordRepo, "KeywordRepository", "repository (Protocol)", "Busca BM25 sobre o MESMO índice e o mesmo documento. Adaptador Elasticsearch distinto, com o mesmo tipo de retorno e sem distance.")
+  Component(docReader, "DocumentReader", "repository (Protocol)", "PdfDocumentReader. Glob pdfs/*.pdf, NÃO recursivo, numa passada.")
+
+  Component(console, "ConsoleReporter", "presenter", "Único componente que escreve no terminal. Monta uma linha por trecho com CAMPOS SEPARADOS: caminhos e posições, rrf, rerank e distância. Score e distância podem aparecer na mesma linha, nunca no mesmo campo.")
+  Component(json, "JsonPresenter", "presenter", "Serializa no contrato 1.2.0. Omite campo opcional vazio, nunca emite null: é assim que estágio não executado fica ausente em vez de zero.")
+
+  Component(dominio, "domain/models.py", "domínio", "Page, Chunk, SearchHit com doc_id, score e provenance, Provenance, RetrievalResult, Citation, Conversation, Answer, IngestionReport. Folha: não importa LangChain nem vocabulário do Elasticsearch.")
+  Component(config, "config.py + exceptions.py", "base", "Padrões e faixas de candidates, rrf_k e k, propriedades do Elasticsearch, o nome do reordenador multilíngue, e a hierarquia RagException com InvalidIndexMappingException.")
+}
+
+ContainerDb_Ext(elasticsearch, "Elasticsearch", "Container Docker", "Índice único com dense_vector e campo de texto analisado no mesmo documento")
+
+Rel(api, queryFacade, "monta na rota e chama")
+Rel(api, ingestionFacade, "monta na rota e chama")
+Rel(api, json, "serializa")
+Rel(api, health, "confere antes de servir")
+
+Rel(queryFacade, rewrite, "decide()")
+Rel(queryFacade, retrieval, "retrieve(pergunta resolvida)")
+Rel(queryFacade, prompts, "build()")
+Rel(queryFacade, generation, "generate()")
+Rel(queryFacade, citations, "resolve()")
+
+Rel(retrieval, dense, "search(candidates), cronometrado em dense_s")
+Rel(retrieval, keywords, "search(candidates), cronometrado em keyword_s")
+Rel(retrieval, fusion, "fuse(rankings, rrf_k), cronometrado em fusion_s")
+Rel(retrieval, rerank, "rerank(pergunta, fundidos, k), cronometrado em rerank_s")
+Rel(retrieval, dominio, "devolve RetrievalResult")
+
+Rel(dense, vectorRepo, "search() e count(), repasse sem política")
+Rel(keywords, keywordRepo, "search(), repasse sem política")
+
+Rel(ingestionFacade, docReader, "read()")
+Rel(ingestionFacade, chunking, "split()")
+Rel(ingestionFacade, vectorRepo, "recreate() com mapping explícito, e add()")
+
+Rel(rewrite, generation, "generate() do prompt de reescrita")
+Rel(health, vectorRepo, "dimensão do vetor e mapping do campo de texto")
+
+Rel(vectorRepo, elasticsearch, "kNN sobre dense_vector", "HTTP")
+Rel(keywordRepo, elasticsearch, "BM25 sobre o texto analisado", "HTTP")
+
+Rel(console, dominio, "lê")
+Rel(json, dominio, "lê")
+Rel(vectorRepo, dominio, "devolve SearchHit")
+Rel(keywordRepo, dominio, "devolve SearchHit")
+
+note as ADR008
+  **ADR-008: o funil mora em service/retrieval/.**
+  A recuperação é o que muda de projeto para projeto na
+  trilha; agrupá-la faz "o que este projeto tem de
+  diferente" caber num diretório.
+
+  • Cinco arquivos: denso, léxico, fusão, rerank, funil
+  • query_rewrite_service fica FORA: é o estágio da pergunta
+  • Os repositórios ficam fora: fronteira de camada
+  • Diverge da guideline, que prescreve service/ plano
+end note
+
+note as ADR009
+  **ADR-009: o funil fala com services, nunca com repos.**
+  DenseSearchService e KeywordSearchService são REPASSE
+  hoje, e a camada vazia foi escolha consciente.
+
+  • Existem para o pacote mostrar as quatro etapas como pares
+  • O gatilho que os torna necessários está no ADR
+  • Não apagar achando que passaram despercebidos
+end note
+
+note as ADR003
+  **ADR-003: a matemática mora fora do orquestrador.**
+  O RetrievalService dispara, mede e corta; a fórmula
+  do RRF é do FusionService.
+
+  • Função pura: rankings entram, ranking sai
+  • Deduplica por doc_id, nunca por prefixo de texto
+  • Depende de posição, nunca de valor: escala não altera
+  • Injetar repositório nele é o sinal de que escorregou
+end note
+
+note as ADR004
+  **ADR-004: o rerank é Protocol com implementação local.**
+  O Protocol existe para a API hospedada entrar como
+  segunda implementação, sem reescrita.
+
+  • Modelo multilíngue mmarco-mMiniLMv2-L12-H384-v1
+  • O modelo em inglês foi trocado por medição, não por gosto
+  • Carregado uma vez por processo; falha ao carregar é 503
+  • Não há fallback silencioso de rerank ligado para desligado
+end note
+
+note as ADR007
+  **ADR-007: quem mede é quem executa.**
+  A facade deixa de cronometrar a busca porque o
+  estágio virou funil e só o serviço enxerga as partes.
+
+  • RetrievalResult carrega hits e os quatro tempos
+  • Estágio não executado tem tempo AUSENTE, nunca zero
+  • A facade não ganha responsabilidade de orquestração
+end note
+
+note as ADR001
+  **ADR-001: dois adaptadores, um motor, nada vazando.**
+  A superfície de vazamento dobrou: agora são dois
+  repositórios adaptando o mesmo Elasticsearch.
+
+  • _id, _source e hits.hits ficam nos adaptadores
+  • domain/ sem import do cliente e sem LangChain
+  • Mapping como keyword degrada o BM25 em silêncio
+end note
+
+note as SAUDE
+  **Saúde REPORTA estado; quem falha é quem trabalha.**
+  GET /health responde 200 com status degraded para índice
+  vazio ou mal mapeado, e NUNCA 409.
+
+  • O 409 é do POST /ask: EMPTY_INDEX e INVALID_INDEX_MAPPING
+  • Motor fora do ar é 503 em qualquer rota
+  • InvalidIndexMappingException antes do tratador genérico
+end note
+
+note as CITACAO
+  **Invariante herdado, e agora crítico.**
+  Nenhuma reordenação ocorre depois da numeração do
+  contexto: o funil termina antes de o PromptBuilder
+  numerar, e o [n] nunca é a posição em hits.
+end note
+
+ADR008 .. funil
+ADR009 .. dense
+ADR003 .. fusion
+ADR004 .. rerank
+ADR007 .. retrieval
+ADR001 .. keywordRepo
+SAUDE .. health
+CITACAO .. citations
+
+SHOW_LEGEND()
+@enduml

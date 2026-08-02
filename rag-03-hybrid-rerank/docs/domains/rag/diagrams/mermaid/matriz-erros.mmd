@@ -1,0 +1,98 @@
+%% Matriz de erros como arvore de decisao (FDD secao 6, e criterio de aceite 10)
+%% Conferido contra rag/api/, rag/service/health_checker.py e rag/service/retrieval/.
+%% Nao ha fallback silencioso: estagio pedido que nao pode rodar e erro, nunca degradacao.
+%% A ordem dos ramos e a ORDEM REAL das checagens: primeiro o container do FastAPI
+%% resolve as dependencias, depois a rota le o corpo.
+flowchart TD
+    inicio(["Requisição HTTP recebida"])
+
+    rota{"Qual rota?"}
+    capacidades["GET /capabilities responde 200 SEMPRE<br/>a rota não declara Depends, de propósito:<br/>o frontend precisa descobrir a interface<br/>mesmo com o motor fora do ar"]
+
+    motorNoAr{"O Elasticsearch responde?<br/>HealthChecker.check, via provide_healthy_properties"}
+    erroMotor["503 SERVICE_UNAVAILABLE<br/>receita: docker compose up -d elasticsearch<br/>ele leva cerca de 30 s até aceitar conexão<br/>distinto de índice vazio"]
+
+    clusterVermelho{"O cluster está VERMELHO?<br/>lido em /_cluster/health, NUNCA na raiz:<br/>a raiz responde 200 mesmo em estado vermelho"}
+    erroCluster["503 SERVICE_UNAVAILABLE<br/>há shard primário indisponível"]
+    amareloOk["Estado AMARELO é ACEITO, e precisa ser:<br/>cluster de nó único NUNCA fica verde,<br/>porque as réplicas não têm onde ser alocadas.<br/>Exigir verde reprovaria todo ambiente local."]
+
+    qualRota{"GET /health ou POST /ask?"}
+
+    saude["GET /health responde 200 e REPORTA o estado<br/>status ok quando há trechos e o campo de texto é analisado<br/>status degraded quando o índice está vazio OU mal mapeado<br/>e emite text_field_analyzed quando o índice existe<br/>NUNCA devolve 409: quem falha com 409 é o POST /ask"]
+
+    dimensao{"A dimensão do índice bate com o modelo de embedding?<br/>check_dimensions, via provide_checked_repository"}
+    erroDimensao["500 INVALID_CONFIGURATION<br/>não existe migração, existe reindexação<br/>herdado e inalterado"]
+
+    pergunta{"A pergunta é não vazia?"}
+    erroPergunta["422 INVALID_PARAMETER<br/>validado na rota, e não no modelo Pydantic,<br/>para o erro sair no formato Problem do contrato"]
+
+    hibridaLigada{"hibrida está ligado?<br/>padrão: true"}
+    mapping{"O campo de texto está mapeado como ANALISADO?<br/>check_mapping, chamado só quando hibrida está ligado"}
+    erroMapping["409 INVALID_INDEX_MAPPING<br/>com receita de reindexação<br/>precisa estar em error_handlers.py ANTES do tratador genérico,<br/>senão cai em 500 por omissão"]
+    passaMapping["Segue normalmente<br/>a busca densa não depende do campo de texto analisado,<br/>e a configuração puramente densa é a linha de base da tabela"]
+
+    historico{"Os turnos de options.history estão bem formados?"}
+    erroHistorico["422 INVALID_PARAMETER<br/>a única coisa em options que falha ALTO<br/>em vez de cair no default: histórico truncado em silêncio<br/>produz reescrita sobre o assunto errado, sem sintoma"]
+
+    faixa{"k, candidates e rrf_k dentro da faixa?<br/>k de 1 a 20, candidates de 1 a 50, rrf_k de 1 a 1000"}
+    erroFaixa["422 INVALID_PARAMETER<br/>nomeia parâmetro, valor e faixa<br/>validado no CONSTRUTOR do RetrievalService"]
+
+    relacao{"k é menor ou igual a candidates?"}
+    erroRelacao["422 INVALID_PARAMETER<br/>contradição de configuração: o funil não tem<br/>de onde tirar os finais que faltam"]
+
+    indice{"require_index: o índice existe e tem trechos?"}
+    erroIndice["409 EMPTY_INDEX<br/>chamado ANTES de qualquer chamada paga<br/>comportamento herdado do Projeto 2"]
+
+    rerankLigado{"rerank está ligado?<br/>padrão: true"}
+    carregaCross{"O cross encoder carregou e pontuou?"}
+    erroCross["503 SERVICE_UNAVAILABLE<br/>NUNCA degradar em silêncio para 'sem rerank':<br/>um fallback silencioso aqui produziria a tabela errada"]
+
+    sucesso["200 com a resposta produzida<br/>inclusive quando refused é true"]
+
+    inicio --> rota
+    rota -. "GET /capabilities" .-> capacidades
+    rota -- "GET /health ou POST /ask" --> motorNoAr
+    motorNoAr -. "não responde" .-> erroMotor
+    motorNoAr -- "responde" --> clusterVermelho
+    clusterVermelho -. "vermelho" .-> erroCluster
+    clusterVermelho -- "verde ou amarelo" --> qualRota
+    clusterVermelho -.-> amareloOk
+    qualRota -- "GET /health" --> saude
+    qualRota -- "POST /ask" --> dimensao
+    dimensao -. "divergente" .-> erroDimensao
+    dimensao -- "confere" --> pergunta
+    pergunta -. "vazia" .-> erroPergunta
+    pergunta -- "preenchida" --> hibridaLigada
+    hibridaLigada -- "sim" --> mapping
+    hibridaLigada -. "não" .-> passaMapping
+    mapping -. "não, campo keyword" .-> erroMapping
+    mapping -- "sim" --> historico
+    passaMapping --> historico
+    historico -. "turno malformado" .-> erroHistorico
+    historico -- "bem formado ou ausente" --> faixa
+    faixa -. "fora de faixa" .-> erroFaixa
+    faixa -- "dentro da faixa" --> relacao
+    relacao -. "k maior que candidates" .-> erroRelacao
+    relacao -- "válido" --> indice
+    indice -. "vazio ou inexistente" .-> erroIndice
+    indice -- "com trechos" --> rerankLigado
+    rerankLigado -. "não" .-> sucesso
+    rerankLigado -- "sim" --> carregaCross
+    carregaCross -. "falha ao carregar ou ao pontuar" .-> erroCross
+    carregaCross -- "reordenou" --> sucesso
+
+    classDef erro503 fill:#ffe0e0,stroke:#cf222e,stroke-width:3px,color:#111
+    classDef erro409 fill:#fff3bf,stroke:#bf8700,stroke-width:3px,color:#111
+    classDef erro422 fill:#ffe8d1,stroke:#d1610a,stroke-width:3px,color:#111
+    classDef erro500 fill:#f0d9ff,stroke:#8250df,stroke-width:3px,color:#111
+    classDef ok fill:#e6ffed,stroke:#1a7f37,stroke-width:3px,color:#111
+    classDef segue fill:#e8f4ff,stroke:#1f6feb,stroke-width:2px,color:#111
+    classDef nota fill:#f6f8fa,stroke:#8b949e,stroke-dasharray: 4 4,color:#111
+
+    class erroMotor,erroCluster,erroCross erro503
+    class erroIndice,erroMapping erro409
+    class erroFaixa,erroRelacao,erroPergunta,erroHistorico erro422
+    class erroDimensao erro500
+    class sucesso,saude,capacidades ok
+    class passaMapping segue
+    class amareloOk nota

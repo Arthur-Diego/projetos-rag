@@ -1,0 +1,63 @@
+# Elasticsearch como armazem UNICO (ADR-001). Suba antes de qualquer entrypoint:
+#   docker compose up -d elasticsearch
+#
+# Ele atende os DOIS caminhos de busca sobre o MESMO indice e o MESMO documento:
+# kNN sobre o campo dense_vector, e BM25 sobre o campo de texto analisado. Nao
+# ha segundo armazem, e portanto nao ha sincronizacao entre armazens.
+#
+# Saude:   curl localhost:9200/_cluster/health
+#
+# NAO use a raiz (curl localhost:9200) como teste de saude: ela responde 200
+# mesmo com o cluster em estado VERMELHO. Um cluster degradado pode servir busca
+# densa e falhar BM25, que e exatamente a falha silenciosa que este projeto mais
+# precisa detectar. O rag/config.py aponta para /_cluster/health por esse motivo.
+#
+# UM SERVICO POR VEZ. A guideline do workspace ja recomendava; aqui e obrigacao.
+# O Elasticsearch sozinho pede 1 a 2 GB de RAM, e esta maquina hospeda tambem o
+# Qdrant do Projeto 2 (6333) e os Chroma dos Projetos 1 e 2 (8000 e 8001).
+# Derrube os containers dos projetos anteriores antes de trabalhar neste:
+#   (cd ../rag-02-conversacional-citacoes && docker compose down)
+#
+# O ES_JAVA_OPTS abaixo limita o heap a 1 GB. Sem ele o Elasticsearch dimensiona
+# o heap por percentual da RAM da maquina, o que num WSL 2 com memoria generosa
+# reserva muito mais do que este projeto precisa.
+#
+# HEALTHCHECK NAO E ENFEITE aqui. O servico leva cerca de 30 segundos ate aceitar
+# conexao, e sem ele o script conecta antes e produz um erro de rede que e, na
+# verdade, erro de tempo. O start_period cobre justamente essa janela.
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.10
+    container_name: rag03-elasticsearch
+    environment:
+      # No de um cluster de um no so. Sem isto o ES espera eleger master e nunca
+      # fica verde.
+      - discovery.type=single-node
+      # Seguranca desabilitada por ser local e efemero. Em qualquer outro
+      # contexto isto seria erro; aqui e a escolha deliberada de nao gerir
+      # certificado para um container descartavel, e esta registrada no HLD.
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+    healthcheck:
+      # A imagem do Elasticsearch traz curl, entao da para testar a API DE FATO,
+      # e nao so a porta TCP como no Projeto 2. wait_for_status=yellow porque um
+      # cluster de no unico nunca fica verde: as replicas nao tem onde ser
+      # alocadas. Exigir verde deixaria o container "starting" para sempre.
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null || exit 1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  elastic_data:

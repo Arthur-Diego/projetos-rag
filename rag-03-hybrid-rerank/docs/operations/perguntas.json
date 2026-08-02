@@ -1,0 +1,105 @@
+{
+  "_comentario": [
+    "Golden set da tabela de medição (ADR-002 da feature).",
+    "",
+    "MUDANÇA IMPORTANTE em relação à primeira versão: a âncora desceu de PÁGINA",
+    "para TRECHO. A validação de 28/07 mostrou que anotar por página superestima o",
+    "sucesso: uma página rende vários trechos de 1000 caracteres, e o funil podia",
+    "trazer um trecho da página certa que não continha a resposta. A página batia, o",
+    "acerto era contado, e o modelo corretamente recusava.",
+    "",
+    "Agora `ancora` é uma string que precisa aparecer LITERALMENTE no texto de um dos",
+    "trechos finais. Sem julgamento, sem ambiguidade, e sem circularidade: as âncoras",
+    "foram extraídas do PDF com pypdf, nunca pelo sistema medido.",
+    "",
+    "`paginas` fica como informação de apoio para conferência humana, e NÃO é mais o",
+    "critério de acerto.",
+    "",
+    "POR QUE ESTE CORPUS. O anterior era ficção, e nomes próprios de ficção vêm em",
+    "contexto narrativo rico, o que os torna semanticamente densos: a busca densa ia",
+    "bem neles e a híbrida não tinha o que consertar. Aqui os códigos de rejeição são",
+    "consecutivos e as descrições diferem por UMA PALAVRA:",
+    "",
+    "  229 Rejeição: IE do emitente não informada",
+    "  230 Rejeição: IE do emitente não cadastrada",
+    "  231 Rejeição: IE do emitente não vinculada ao CNPJ",
+    "  232 Rejeição: IE do destinatário não informada",
+    "",
+    "Um embedding não distingue 229 de 232, e as quatro descrições ocupam quase o",
+    "mesmo ponto do espaço vetorial. O BM25 casa o token exato. É a condição que a",
+    "busca híbrida existe para resolver, e o corpus anterior não a produzia."
+  ],
+  "corpus": "moc-nfe-anexo-i.pdf",
+  "perguntas": [
+    {
+      "id": "C1",
+      "categoria": "conceitual",
+      "pergunta": "O que acontece quando o documento chega ao órgão receptor muito tempo depois de ter sido emitido?",
+      "ancora": "Data de Emissão muito atrasada",
+      "paginas": [76, 144]
+    },
+    {
+      "id": "C2",
+      "categoria": "conceitual",
+      "pergunta": "Como funciona a emissão quando o sistema da autoridade fiscal está indisponível?",
+      "ancora": "Contingência EPEC",
+      "paginas": [10, 77]
+    },
+    {
+      "id": "C3",
+      "categoria": "conceitual",
+      "pergunta": "O que impede o download de um documento por quem não é o destinatário dele?",
+      "ancora": "não tem o mesmo CNPJ raiz do solicitante do download",
+      "paginas": [149]
+    },
+    {
+      "id": "C4",
+      "categoria": "conceitual",
+      "pergunta": "O que ocorre quando o mesmo documento é enviado duas vezes para o fisco?",
+      "ancora": "Duplicidade de NF-e",
+      "paginas": [143, 144]
+    },
+    {
+      "id": "C5",
+      "categoria": "conceitual",
+      "pergunta": "Qual verificação matemática garante que o número identificador do documento não foi digitado errado?",
+      "ancora": "Chave de Acesso com dígito verificador inválido",
+      "paginas": [144]
+    },
+    {
+      "id": "I1",
+      "categoria": "identificador",
+      "pergunta": "O que significa a rejeição 229?",
+      "ancora": "IE do emitente não informada",
+      "paginas": [144]
+    },
+    {
+      "id": "I2",
+      "categoria": "identificador",
+      "pergunta": "O que significa a rejeição 234?",
+      "ancora": "IE do destinatário não vinculada ao CNPJ",
+      "paginas": [144]
+    },
+    {
+      "id": "I3",
+      "categoria": "identificador",
+      "pergunta": "O que é a rejeição 226?",
+      "ancora": "Código da UF do Emitente diverge da UF autorizadora",
+      "paginas": [144]
+    },
+    {
+      "id": "I4",
+      "categoria": "identificador",
+      "pergunta": "O que quer dizer o código 262?",
+      "ancora": "UF não fornece consulta por CPF",
+      "paginas": [144]
+    },
+    {
+      "id": "I5",
+      "categoria": "identificador",
+      "pergunta": "O que é a rejeição 261?",
+      "ancora": "IE da consulta não cadastrada como contribuinte na UF",
+      "paginas": [144]
+    }
+  ]
+}

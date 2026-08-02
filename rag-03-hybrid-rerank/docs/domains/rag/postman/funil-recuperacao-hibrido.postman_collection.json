@@ -1,0 +1,1259 @@
+{
+  "info": {
+    "_postman_id": "9c4d7e21-5a86-4b30-8f19-funil-hibrido03",
+    "name": "Funil de recuperacao hibrido",
+    "description": "Colecao derivada do FDD `docs/domains/rag/features/funil-recuperacao-hibrido-fdd.md` (secao 5, contratos publicos; secao 4, ordem dos fluxos; secao 6, matriz de erros; secao 9, criterios de aceite) do projeto `rag-03-hybrid-rerank`.\n\nContrato publicado cruzado: `../../../../../docs/contracts/rag-api.yaml`, OpenAPI 3.1.0, **versao 1.1.0**. O FDD (linha 176) especifica **1.2.0**, que ainda nao foi publicado: e a etapa 10 do Build Order (secao 11, linha 540). Todas as diferencas estao em `divergencias.md`, na mesma pasta, e duas delas sao de severidade ALTA.\n\nNenhuma rota e autenticada: o `rag-api.yaml` nao declara `securitySchemes` e a secao 5 do FDD nao cita header de autorizacao. Por isso a colecao nao tem bloco `auth`; `accessToken` existe no environment so como espaco reservado.\n\nOs testes afirmam as invariantes da secao 6 (linhas 345 a 350) e o criterio 6 da secao 9 (linhas 421 a 423), nao so o status:\n1. estagio que nao executou tem tempo **ausente**, nunca zero — `keyword_s` sem `hibrida`, `rerank_s` sem `rerank`;\n2. `score` (maior e melhor) e `distance` (menor e melhor) nunca ocupam o mesmo campo, e `distance` so e valido com `hibrida` e `rerank` desligados;\n3. `score` e o valor do rerank quando ele rodou e o da fusao quando nao rodou;\n4. resposta com `refused: true` tem `citations` vazia;\n5. procedencia: `paths`, ranks 1-based, e campo de caminho nao executado ausente.\n\nO projeto ainda nao tem codigo: nao ha servico escutando e a colecao **nao foi executada**. Ela e o artefato a rodar depois da etapa 9 do Build Order (camada HTTP), e a checagem de contrato depois da etapa 10.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string",
+      "description": "Base URL local informada na tarefa. O `rag-api.yaml` declara `http://localhost:8080` em `servers`, mas o proprio contrato admite porta por projeto. Nao foi conferida contra codigo: nao ha codigo."
+    },
+    {
+      "key": "perguntaFactual",
+      "value": "O que Nicolau Flamel fabricava?",
+      "type": "string",
+      "description": "Pergunta do exemplo de requisicao da secao 5 do FDD (linha 218) e do exemplo de resposta (linha 234)."
+    },
+    {
+      "key": "perguntaVazia",
+      "value": "",
+      "type": "string",
+      "description": "Pergunta vazia, 422 na secao 6 do FDD (linha 326) e na secao 5 (linha 272)."
+    },
+    {
+      "key": "k",
+      "value": "4",
+      "type": "string",
+      "description": "Padrao de `k`, o corte final do funil (FDD secao 5, linhas 187 e 188; faixa 1 a 20, herdada de 1.0.0)."
+    },
+    {
+      "key": "candidates",
+      "value": "20",
+      "type": "string",
+      "description": "Padrao de `candidates`, candidatos buscados por caminho (FDD secao 5, linha 184; faixa 1 a 50, teto justificado nas linhas 191 e 192)."
+    },
+    {
+      "key": "rrfK",
+      "value": "60",
+      "type": "string",
+      "description": "Padrao de `rrf_k`, amortecimento da fusao (FDD secao 5, linha 185; faixa 1 a 1000)."
+    },
+    {
+      "key": "kMaiorQueCandidates",
+      "value": "10",
+      "type": "string",
+      "description": "`k` deliberadamente maior que `candidates` para provocar 422 (FDD secao 6, linha 325; criterio 5, linha 420)."
+    },
+    {
+      "key": "candidatesMenorQueK",
+      "value": "5",
+      "type": "string",
+      "description": "`candidates` menor que `k` no mesmo par. Dentro da faixa 1 a 50, para isolar a contradicao de configuracao do erro de faixa."
+    },
+    {
+      "key": "candidatesForaDeFaixa",
+      "value": "51",
+      "type": "string",
+      "description": "Um acima do teto de 50 (FDD secao 5, linhas 184 e 191). 422 pela linha 324 da secao 6."
+    },
+    {
+      "key": "rrfKForaDeFaixa",
+      "value": "0",
+      "type": "string",
+      "description": "Um abaixo do piso de 1 (FDD secao 5, linha 185). 422 pela linha 324 da secao 6."
+    }
+  ],
+  "item": [
+    {
+      "name": "meta",
+      "description": "Contratos 5.3 (`GET /health`, linha 282) e 5.2 (`GET /capabilities`, linha 275). Sem efeito colateral e sem chamada paga; rode primeiro. `/capabilities` continua sem `Depends` e responde com a infraestrutura fora do ar (FDD linha 279), entao e o unico request que deve passar antes de o Elasticsearch subir.",
+      "item": [
+        {
+          "name": "GET /health — mapping do campo de texto e dimensao do vetor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "FDD secao 5.3 (linhas 282 a 287): alem da dimensao do vetor, o `/health` passa a reportar o estado do mapping do campo de texto. O endpoint consultado no Elasticsearch e `/_cluster/health`, nao a raiz, porque a raiz responde 200 com o cluster vermelho.\n\n**Ambiguidade registrada como MEDIA em `divergencias.md`:** o FDD nao nomeia o campo que carrega o estado do mapping, e o `rag-api.yaml` 1.1.0 nao tem campo nenhum para isso. O teste aceita qualquer chave cujo nome contenha `mapping`, `analyz`, `text_field` ou `analisad`, e falha listando as chaves recebidas — e um lembrete, nao uma especificacao.\n\n**Divergencia ALTA:** o criterio 10 da secao 9 (linha 432) exige **409** deste endpoint quando o motor esta no ar e o indice ausente. O contrato 1.1.0 so declara 200 e 503 para `/health`. Este request cobre o caminho 200; o 409 nao vira request porque depende de indice ausente (estado provocado)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (rag-api.yaml, /health)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('campos obrigatorios do contrato: status e project', function () {",
+                  "    pm.expect(json).to.have.property('status');",
+                  "    pm.expect(json).to.have.property('project');",
+                  "});",
+                  "",
+                  "pm.test('status pertence ao enum [ok, degraded]', function () {",
+                  "    pm.expect(json.status).to.be.oneOf(['ok', 'degraded']);",
+                  "});",
+                  "",
+                  "pm.test('dimensao do vetor reportada (FDD secao 5.3, linha 283)', function () {",
+                  "    pm.expect(json).to.have.property('embedding_dimensions');",
+                  "});",
+                  "",
+                  "pm.test('contagem do indice reportada (contrato, indexed_chunks)', function () {",
+                  "    pm.expect(json).to.have.property('indexed_chunks');",
+                  "});",
+                  "",
+                  "pm.test('estado do mapping do campo de texto reportado (FDD secao 5.3, linha 283)', function () {",
+                  "    const chaves = Object.keys(json);",
+                  "    const achou = chaves.some(function (c) {",
+                  "        return /mapping|analyz|text_field|analisad/i.test(c);",
+                  "    });",
+                  "    pm.expect(achou, 'nenhuma chave de mapping entre: ' + chaves.join(', ')).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('cluster degradado nao e aprovado como saudavel (criterio 10, linha 433)', function () {",
+                  "    if (json.status === 'degraded') {",
+                  "        pm.expect.fail('o FDD trata cluster degradado como 503 (secao 6, linha 320), nao como 200 com status degraded; ver divergencias.md');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /capabilities — publica os quatro parametros novos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/capabilities",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "capabilities"
+              ]
+            },
+            "description": "FDD secao 5.2 (linhas 275 a 280): publica `hibrida`, `rerank`, `candidates` e `rrf_k` no mesmo formato dos existentes, com rotulo em portugues, ajuda curta, padrao, faixa e `applies_to: [\"ask\"]`. Padroes e tetos sao importados de `config.py`, nunca reescritos no descritor — o teste confere valor a valor contra a tabela da linha 180 do FDD, e uma divergencia aqui significa descritor reescrito a mao.\n\n`k` tambem e conferido: ele **nao** e parametro novo e mantem rotulo, padrao 4 e faixa 1 a 20 (linhas 187, 188 e 405).\n\nEste e o mecanismo de desacoplamento do frontend (`rag-api.yaml`, `/capabilities`): o controle novo aparece sozinho a partir daqui."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('campos obrigatorios do contrato: project, features, parameters', function () {",
+                  "    pm.expect(json).to.have.property('project');",
+                  "    pm.expect(json).to.have.property('features');",
+                  "    pm.expect(json).to.have.property('parameters');",
+                  "});",
+                  "",
+                  "pm.test('features inclui ask e ingest', function () {",
+                  "    pm.expect(json.features).to.include('ask');",
+                  "    pm.expect(json.features).to.include('ingest');",
+                  "});",
+                  "",
+                  "const p = json.parameters || {};",
+                  "",
+                  "pm.test('os quatro parametros novos estao publicados (FDD linha 180)', function () {",
+                  "    ['hibrida', 'rerank', 'candidates', 'rrf_k'].forEach(function (nome) {",
+                  "        pm.expect(p, 'parametro ' + nome).to.have.property(nome);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('todo parametro tem type e label, exigidos por ParameterSpec', function () {",
+                  "    Object.keys(p).forEach(function (nome) {",
+                  "        pm.expect(p[nome], nome + '.type').to.have.property('type');",
+                  "        pm.expect(p[nome], nome + '.label').to.have.property('label');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('hibrida: boolean, padrao true, applies_to ask (FDD linha 182)', function () {",
+                  "    pm.expect(p.hibrida.type).to.eql('boolean');",
+                  "    pm.expect(p.hibrida.default).to.eql(true);",
+                  "    pm.expect(p.hibrida.applies_to).to.eql(['ask']);",
+                  "});",
+                  "",
+                  "pm.test('rerank: boolean, padrao true, applies_to ask (FDD linha 183)', function () {",
+                  "    pm.expect(p.rerank.type).to.eql('boolean');",
+                  "    pm.expect(p.rerank.default).to.eql(true);",
+                  "    pm.expect(p.rerank.applies_to).to.eql(['ask']);",
+                  "});",
+                  "",
+                  "pm.test('candidates: integer, padrao 20, faixa 1 a 50 (FDD linhas 184 e 191)', function () {",
+                  "    pm.expect(p.candidates.type).to.eql('integer');",
+                  "    pm.expect(p.candidates.default).to.eql(20);",
+                  "    pm.expect(p.candidates.minimum).to.eql(1);",
+                  "    pm.expect(p.candidates.maximum).to.eql(50);",
+                  "    pm.expect(p.candidates.applies_to).to.eql(['ask']);",
+                  "});",
+                  "",
+                  "pm.test('rrf_k: integer, padrao 60, faixa 1 a 1000 (FDD linha 185)', function () {",
+                  "    pm.expect(p.rrf_k.type).to.eql('integer');",
+                  "    pm.expect(p.rrf_k.default).to.eql(60);",
+                  "    pm.expect(p.rrf_k.minimum).to.eql(1);",
+                  "    pm.expect(p.rrf_k.maximum).to.eql(1000);",
+                  "    pm.expect(p.rrf_k.applies_to).to.eql(['ask']);",
+                  "});",
+                  "",
+                  "pm.test('k nao mudou: padrao 4, faixa 1 a 20 (FDD linhas 187, 188 e 405)', function () {",
+                  "    pm.expect(p.k.default).to.eql(4);",
+                  "    pm.expect(p.k.minimum).to.eql(1);",
+                  "    pm.expect(p.k.maximum).to.eql(20);",
+                  "});",
+                  "",
+                  "pm.test('top_n nao existe: o k existente e o corte final (FDD linhas 104 e 105)', function () {",
+                  "    pm.expect(p).to.not.have.property('top_n');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ingest",
+      "description": "Fluxo de ingestao da secao 4 do FDD (linhas 136 a 148). A secao 5 **nao declara** este contrato HTTP; a rota vem do `rag-api.yaml` 1.1.0 e a feature muda o que ela faz (mapping explicito). Registrado como MEDIA em `divergencias.md`.\n\nOperacao cara e destrutiva: apaga o indice anterior. Rode antes de `ask/`.",
+      "item": [
+        {
+          "name": "POST /ingest — recria o indice com mapping explicito",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "description": "**Sem corpo, de proposito.** O `requestBody` de `/ingest` e `required: false` no contrato, e a secao 5 do FDD nao declara nenhum parametro de ingestao para esta feature. Enviar `chunk_size` e `chunk_overlap` seria inventar campo: eles aparecem no exemplo do contrato e no relatorio (FDD linha 363), nao no contrato desta feature. Sem corpo, o backend usa os padroes de `config.py`.\n\nOrdem herdada e testada (FDD linhas 138 a 147): conta o indice anterior **antes** de destruir, destroi, cria o novo com **mapping explicito**, le, grava. Falha depois da destruicao deixa o indice vazio, cujo sintoma e evidente.\n\nO criterio 7 (linha 424) — campo de texto analisado em portugues e campo vetorial com a dimensao declarada — **nao e verificavel por este request**: exige inspecao do mapping no proprio Elasticsearch (`GET {{elasticsearchUrl}}/<indice>/_mapping`). O teste abaixo so confere o relatorio."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (contrato, IngestionReport)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('campos obrigatorios do IngestionReport: pages, chunks, seconds', function () {",
+                  "    pm.expect(json).to.have.property('pages');",
+                  "    pm.expect(json).to.have.property('chunks');",
+                  "    pm.expect(json).to.have.property('seconds');",
+                  "});",
+                  "",
+                  "pm.test('relatorio mantem os numeros do Projeto 2 (FDD linhas 144 e 362)', function () {",
+                  "    ['discarded_pages', 'previous_chunks', 'chunk_size', 'chunk_overlap'].forEach(function (campo) {",
+                  "        pm.expect(json, 'campo ' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('a ingestao produziu trechos', function () {",
+                  "    pm.expect(json.chunks).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('paginas sao 1-based e a contagem de descartes e nao negativa', function () {",
+                  "    pm.expect(json.pages).to.be.at.least(0);",
+                  "    pm.expect(json.discarded_pages).to.be.at.least(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ask",
+      "description": "Contrato 5.1 do FDD (`POST /ask`, linhas 172 a 273). As tres primeiras requisicoes sao exatamente as tres colunas da tabela de medicao (FDD linhas 155 a 157 e criterio 13, linha 439): so densa, hibrida, hibrida mais rerank. A quarta e a contradicao de configuracao do criterio 5 (linha 420).\n\nNao ha encadeamento de valor entre elas: a secao 4 descreve um funil dentro de um turno, nao uma sequencia de turnos. Cada request roda isolado. O `history` vai vazio em todas, porque a reescrita nao e escopo desta feature (linha 42).\n\n**Cada request gasta chamada paga**: uma de embedding da query e uma de geracao. O rerank roda local, na CPU, e nao gasta API.",
+      "item": [
+        {
+          "name": "POST /ask — so densa (hibrida=false, rerank=false)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": false,\n    \"rerank\": false,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Coluna **so densa** da tabela (FDD linha 157): linha de base equivalente ao Projeto 2.\n\nE a unica configuracao em que `hits[].distance` e valido (linhas 207 e 208): `distance` e depreciado e documentado como valido apenas com `hibrida` e `rerank` desligados. **Menor e melhor.** `score`, aqui, e o valor da fusao — RRF sobre uma lista so preserva a ordem (linha 152) —, e **maior e melhor**. Os dois convivem como campos distintos, nunca no mesmo campo (invariante da linha 349).\n\n`keyword_s` e `rerank_s` tem que estar **ausentes**, nao zerados (linhas 153, 154, 350 e criterio 6, linha 421)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 268)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const t = json.timings || {};",
+                  "const hits = json.hits || [];",
+                  "",
+                  "pm.test('Answer com os campos obrigatorios: text, hits, refused, timings', function () {",
+                  "    ['text', 'hits', 'refused', 'timings'].forEach(function (campo) {",
+                  "        pm.expect(json, 'campo ' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('invariante: refused true implica citations vazia (FDD linha 345)', function () {",
+                  "    if (json.refused === true) {",
+                  "        pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('search_s presente: total do estagio de recuperacao (FDD linha 197)', function () {",
+                  "    pm.expect(t).to.have.property('search_s');",
+                  "});",
+                  "",
+                  "pm.test('dense_s presente: o caminho denso sempre executa (FDD linha 158)', function () {",
+                  "    pm.expect(t).to.have.property('dense_s');",
+                  "});",
+                  "",
+                  "pm.test('fusion_s presente: a fusao sempre executa (FDD linhas 152 e 153)', function () {",
+                  "    pm.expect(t).to.have.property('fusion_s');",
+                  "});",
+                  "",
+                  "pm.test('keyword_s AUSENTE, nunca zero (FDD linhas 153, 350 e criterio 6)', function () {",
+                  "    pm.expect(t).to.not.have.property('keyword_s');",
+                  "});",
+                  "",
+                  "pm.test('rerank_s AUSENTE, nunca zero (FDD linhas 154, 350 e criterio 6)', function () {",
+                  "    pm.expect(t).to.not.have.property('rerank_s');",
+                  "});",
+                  "",
+                  "pm.test('o corte final respeita k (FDD linhas 187 e 188)', function () {",
+                  "    pm.expect(hits.length).to.be.at.most(Number(pm.variables.get('k')));",
+                  "});",
+                  "",
+                  "pm.test('score presente e decrescente: maior e melhor (FDD linha 203)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + '].score').to.have.property('score');",
+                  "        pm.expect(h.score, 'hits[' + i + '].score').to.be.a('number');",
+                  "    });",
+                  "    for (let i = 1; i < hits.length; i++) {",
+                  "        pm.expect(hits[i].score, 'hits[' + i + '] acima do anterior').to.be.at.most(hits[i - 1].score);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('distance presente e crescente: menor e melhor, e esta e a unica configuracao valida (FDD linhas 207 e 208)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + '].distance').to.have.property('distance');",
+                  "    });",
+                  "    for (let i = 1; i < hits.length; i++) {",
+                  "        pm.expect(hits[i].distance, 'hits[' + i + '] mais proximo que o anterior').to.be.at.least(hits[i - 1].distance);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('score e distance sao campos distintos, nunca o mesmo (FDD linhas 210 e 349)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h.score, 'hits[' + i + ']').to.not.eql(h.distance);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('procedencia: paths e exatamente [densa] (FDD linhas 204 a 206)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + '].provenance').to.have.property('provenance');",
+                  "        pm.expect(h.provenance.paths, 'hits[' + i + '].provenance.paths').to.eql(['densa']);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('procedencia: dense_rank 1-based, keyword_rank e rerank_score ausentes (FDD linhas 205 e 206)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        const pr = h.provenance || {};",
+                  "        pm.expect(pr.dense_rank, 'hits[' + i + '].dense_rank').to.be.at.least(1);",
+                  "        pm.expect(pr, 'hits[' + i + '] keyword_rank').to.not.have.property('keyword_rank');",
+                  "        pm.expect(pr, 'hits[' + i + '] rerank_score').to.not.have.property('rerank_score');",
+                  "        pm.expect(pr, 'hits[' + i + '] rrf_score').to.have.property('rrf_score');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('score e o valor da fusao quando o rerank nao rodou (FDD linha 203)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h.score, 'hits[' + i + ']').to.be.closeTo(h.provenance.rrf_score, 1e-9);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('citations rotuladas a partir de 1 e sem repeticao (FDD linha 346)', function () {",
+                  "    const rotulos = (json.citations || []).map(function (c) { return c.label; });",
+                  "    rotulos.forEach(function (l) { pm.expect(l).to.be.at.least(1); });",
+                  "    pm.expect(new Set(rotulos).size).to.eql(rotulos.length);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — hibrida (hibrida=true, rerank=false)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": false,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Coluna **hibrida** da tabela (FDD linha 155). Os dois caminhos alimentam a fusao; o corte em `k` e simples, sem reordenacao (linha 130).\n\n`dense_s`, `keyword_s` e `fusion_s` presentes; `rerank_s` **ausente** (linha 154).\n\n`distance` **nao** e valido aqui (linha 208) e o teste exige que esteja ausente: emitir uma distancia que nao ordena mais nada e exatamente a colisao de escala descrita no risco da secao 10 (linhas 502 a 511), que inverte a leitura em tres lugares sem erro nenhum.\n\n`score` e o valor da fusao, porque o rerank nao rodou (linha 203): o teste confere `score == provenance.rrf_score`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 268)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const t = json.timings || {};",
+                  "const hits = json.hits || [];",
+                  "",
+                  "pm.test('Answer com os campos obrigatorios: text, hits, refused, timings', function () {",
+                  "    ['text', 'hits', 'refused', 'timings'].forEach(function (campo) {",
+                  "        pm.expect(json, 'campo ' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('invariante: refused true implica citations vazia (FDD linha 345)', function () {",
+                  "    if (json.refused === true) {",
+                  "        pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('dense_s, keyword_s e fusion_s presentes (FDD linhas 121, 124 e 126)', function () {",
+                  "    ['dense_s', 'keyword_s', 'fusion_s', 'search_s'].forEach(function (campo) {",
+                  "        pm.expect(t, 'timings.' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('rerank_s AUSENTE, nunca zero (FDD linhas 154, 350 e criterio 6)', function () {",
+                  "    pm.expect(t).to.not.have.property('rerank_s');",
+                  "});",
+                  "",
+                  "pm.test('search_s decompoe nos tempos por estagio (FDD linhas 196 a 198)', function () {",
+                  "    const soma = t.dense_s + t.keyword_s + t.fusion_s;",
+                  "    pm.expect(t.search_s, 'search_s e o total do estagio').to.be.at.least(soma - 1e-6);",
+                  "});",
+                  "",
+                  "pm.test('o corte final respeita k (FDD linhas 187 e 188)', function () {",
+                  "    pm.expect(hits.length).to.be.at.most(Number(pm.variables.get('k')));",
+                  "});",
+                  "",
+                  "pm.test('score presente e decrescente: maior e melhor (FDD linha 203)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + '].score').to.have.property('score');",
+                  "        pm.expect(h.score, 'hits[' + i + '].score').to.be.a('number');",
+                  "    });",
+                  "    for (let i = 1; i < hits.length; i++) {",
+                  "        pm.expect(hits[i].score, 'hits[' + i + '] acima do anterior').to.be.at.most(hits[i - 1].score);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('distance AUSENTE: so e valido com hibrida e rerank desligados (FDD linha 208)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + ']').to.not.have.property('distance');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('score e o valor da fusao quando o rerank nao rodou (FDD linha 203)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h.score, 'hits[' + i + ']').to.be.closeTo(h.provenance.rrf_score, 1e-9);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('procedencia: paths so contem densa e bm25, e nunca vem vazio (FDD linha 205)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + '].provenance').to.have.property('provenance');",
+                  "        const paths = h.provenance.paths || [];",
+                  "        pm.expect(paths, 'hits[' + i + '].paths').to.not.be.empty;",
+                  "        paths.forEach(function (p) { pm.expect(p).to.be.oneOf(['densa', 'bm25']); });",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('rank presente para cada caminho declarado, e ausente para o que nao rodou (FDD linhas 205 e 206)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        const pr = h.provenance || {};",
+                  "        const paths = pr.paths || [];",
+                  "        if (paths.indexOf('densa') >= 0) {",
+                  "            pm.expect(pr.dense_rank, 'hits[' + i + '].dense_rank').to.be.at.least(1);",
+                  "        } else {",
+                  "            pm.expect(pr, 'hits[' + i + '] dense_rank').to.not.have.property('dense_rank');",
+                  "        }",
+                  "        if (paths.indexOf('bm25') >= 0) {",
+                  "            pm.expect(pr.keyword_rank, 'hits[' + i + '].keyword_rank').to.be.at.least(1);",
+                  "        } else {",
+                  "            pm.expect(pr, 'hits[' + i + '] keyword_rank').to.not.have.property('keyword_rank');",
+                  "        }",
+                  "        pm.expect(pr, 'hits[' + i + '] rerank_score').to.not.have.property('rerank_score');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('deduplicacao: nenhum documento aparece duas vezes (FDD linhas 65, 66 e criterio 3)', function () {",
+                  "    const ids = hits.map(function (h) { return h.source + '#' + h.page + '#' + (h.excerpt || '').slice(0, 40); });",
+                  "    pm.expect(new Set(ids).size, 'hits repetidos').to.eql(ids.length);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — hibrida + rerank (padrao do sistema)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Coluna **hibrida mais rerank** da tabela, que e o padrao: `hibrida` e `rerank` valem `true` por omissao (FDD linhas 182 e 183). O corpo repete os padroes de forma explicita porque e o exemplo literal da secao 5 (linhas 216 a 228).\n\nOs **quatro** tempos presentes, que e a metade positiva do criterio 6 (linha 421).\n\n`score` e o valor do cross encoder (linha 203): o teste confere `score == provenance.rerank_score`. E este e o unico request em que se pode afirmar que a ordem final e a do rerank, e nao a da fusao — o teste confere que `score` decresce enquanto `rrf_score` **nao** precisa decrescer, que e o sintoma observavel de que o estagio 8 mandou na ordem (criterio 4, linha 417).\n\n**Este e o request mais caro da colecao:** a estimativa do FDD para a reordenacao sozinha e de 1,2 a 3,0 s (linha 492). Se o primeiro `rerank_s` vier segundos acima dos seguintes, o provedor do reranker esta com escopo de requisicao em vez de processo (risco da linha 464), e o teste de latencia abaixo e o alarme."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 268)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const t = json.timings || {};",
+                  "const hits = json.hits || [];",
+                  "",
+                  "pm.test('Answer com os campos obrigatorios: text, hits, refused, timings', function () {",
+                  "    ['text', 'hits', 'refused', 'timings'].forEach(function (campo) {",
+                  "        pm.expect(json, 'campo ' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('invariante: refused true implica citations vazia (FDD linha 345)', function () {",
+                  "    if (json.refused === true) {",
+                  "        pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('os quatro tempos presentes com hibrida e rerank ligados (criterio 6, linha 421)', function () {",
+                  "    ['dense_s', 'keyword_s', 'fusion_s', 'rerank_s'].forEach(function (campo) {",
+                  "        pm.expect(t, 'timings.' + campo).to.have.property(campo);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('search_s continua sendo o total do estagio (FDD linhas 196 a 198)', function () {",
+                  "    const soma = t.dense_s + t.keyword_s + t.fusion_s + t.rerank_s;",
+                  "    pm.expect(t.search_s).to.be.at.least(soma - 1e-6);",
+                  "});",
+                  "",
+                  "pm.test('nenhum tempo veio zerado quando o estagio rodou (FDD linha 350)', function () {",
+                  "    ['dense_s', 'keyword_s', 'fusion_s', 'rerank_s'].forEach(function (campo) {",
+                  "        pm.expect(t[campo], 'timings.' + campo).to.be.above(0);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('o corte final respeita k (FDD linhas 130, 187 e 188)', function () {",
+                  "    pm.expect(hits.length).to.be.at.most(Number(pm.variables.get('k')));",
+                  "});",
+                  "",
+                  "pm.test('score presente e decrescente: maior e melhor (FDD linha 203)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + '].score').to.have.property('score');",
+                  "        pm.expect(h.score, 'hits[' + i + '].score').to.be.a('number');",
+                  "    });",
+                  "    for (let i = 1; i < hits.length; i++) {",
+                  "        pm.expect(hits[i].score, 'hits[' + i + '] acima do anterior').to.be.at.most(hits[i - 1].score);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('distance AUSENTE: so e valido com hibrida e rerank desligados (FDD linha 208)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + ']').to.not.have.property('distance');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('score e o valor do rerank quando ele rodou (FDD linha 203)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        pm.expect(h.provenance, 'hits[' + i + '].provenance').to.have.property('rerank_score');",
+                  "        pm.expect(h.score, 'hits[' + i + ']').to.be.closeTo(h.provenance.rerank_score, 1e-9);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('ordem final segue o rerank_score, nao o rrf_score (FDD linhas 203 e 417)', function () {",
+                  "    const rr = hits.map(function (h) { return h.provenance.rerank_score; });",
+                  "    for (let i = 1; i < rr.length; i++) {",
+                  "        pm.expect(rr[i], 'hits[' + i + '] com rerank_score acima do anterior').to.be.at.most(rr[i - 1]);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('procedencia completa: paths, ranks 1-based e rrf_score (FDD linhas 204 a 206)', function () {",
+                  "    hits.forEach(function (h, i) {",
+                  "        const pr = h.provenance || {};",
+                  "        const paths = pr.paths || [];",
+                  "        pm.expect(paths, 'hits[' + i + '].paths').to.not.be.empty;",
+                  "        paths.forEach(function (p) { pm.expect(p).to.be.oneOf(['densa', 'bm25']); });",
+                  "        pm.expect(pr, 'hits[' + i + '].rrf_score').to.have.property('rrf_score');",
+                  "        if (paths.indexOf('densa') >= 0) { pm.expect(pr.dense_rank).to.be.at.least(1); }",
+                  "        if (paths.indexOf('bm25') >= 0) { pm.expect(pr.keyword_rank).to.be.at.least(1); }",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('citacao sobrevive a reordenacao: todo [n] do texto esta em citations (FDD linhas 346, 347 e criterio 11)', function () {",
+                  "    const rotulos = (json.text.match(/\\[(\\d+)\\]/g) || []).map(function (m) { return Number(m.slice(1, -1)); });",
+                  "    const disponiveis = (json.citations || []).map(function (c) { return c.label; });",
+                  "    const soltos = rotulos.filter(function (l) { return disponiveis.indexOf(l) < 0; });",
+                  "    pm.expect(soltos, 'rotulos sem citacao correspondente').to.be.empty;",
+                  "});",
+                  "",
+                  "pm.test('latencia do rerank dentro da faixa estimada (FDD linha 492: 1,2 a 3,0 s)', function () {",
+                  "    if (t.rerank_s > 6) {",
+                  "        pm.expect.fail('rerank_s = ' + t.rerank_s + ' s. Acima de 6 s sugere modelo carregado por requisicao em vez de por processo (risco da linha 464).');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — k maior que candidates (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{kMaiorQueCandidates}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidatesMenorQueK}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Contradicao de configuracao: `k = 10` e `candidates = 5`. Ambos dentro das faixas individuais — 10 esta em 1 a 20 e 5 esta em 1 a 50 —, de proposito, para isolar a relacao `k <= candidates` (FDD linha 120) do erro de faixa simples.\n\n422 pela matriz de erros (linha 325) e pela semantica de status (linha 272). O criterio 5 (linha 420) cobra o par: `candidates` maior que o numero de trechos existentes devolve o que ha **sem erro**; `k` maior que `candidates` **recusa com 422**.\n\nO 422 e o unico erro desta colecao que o `rag-api.yaml` 1.1.0 ja declara em `POST /ask`. O que ele nao declara e a mensagem: a linha 324 do FDD exige que o erro **nomeie parametro, valor e faixa**, e o teste confere que o `detail` cita os dois parametros."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 325; criterio 5, linha 420)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail, exigidos pelo contrato', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('a mensagem nomeia os dois parametros em conflito (FDD linha 324)', function () {",
+                  "    const d = String(json.detail).toLowerCase();",
+                  "    pm.expect(d, 'detail sem o nome de k').to.include('k');",
+                  "    pm.expect(d, 'detail sem o nome de candidates').to.include('candidates');",
+                  "});",
+                  "",
+                  "pm.test('nenhum resultado parcial acompanha o erro', function () {",
+                  "    pm.expect(json).to.not.have.property('hits');",
+                  "    pm.expect(json).to.not.have.property('timings');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "erros",
+      "description": "Matriz de erros da secao 6 do FDD (linhas 317 a 328) e criterios 9 e 10 da secao 9 (linhas 429 a 433).\n\n**Estes requests exigem estado oposto ao das pastas anteriores e devem ser rodados isolados, nunca no fluxo completo.** Um indice vazio, um indice sem mapping explicito e um Elasticsearch derrubado sao tres mundos diferentes, e nenhum deles convive com a pasta `ask/` passando. Ver `README.md`, secao \"Como provocar cada erro\".",
+      "item": [
+        {
+          "name": "POST /ask — indice vazio ou inexistente (409 EMPTY_INDEX)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "`EmptyIndexException`, nascida em `require_index()`, comportamento herdado (FDD secao 6, linha 321; secao 5, linha 269).\n\n**Estado exigido:** Elasticsearch no ar e indice ausente ou vazio (`docker compose down -v` e subir de novo, sem rodar `/ingest`). Com o indice populado esta requisicao devolve 200 e o teste falha — e a falha e do estado, nao da colecao.\n\nDistinto de 503 (motor fora do ar), e a distincao e o criterio 10 (linha 432)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409 (FDD secao 5, linha 269; secao 6, linha 321)', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('code = EMPTY_INDEX (FDD secao 5, linha 269)', function () {",
+                  "    pm.expect(json.code).to.eql('EMPTY_INDEX');",
+                  "});",
+                  "",
+                  "pm.test('a mensagem diz o que fazer: rodar a ingestao', function () {",
+                  "    pm.expect(String(json.detail).toLowerCase()).to.match(/ingest|indexa|ingestao/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — indice mal mapeado com hibrida ligado (409 INVALID_INDEX_MAPPING)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "`InvalidIndexMappingException`, nova nesta feature (FDD secao 6, linha 322; secao 5, linhas 269 e 270). Campo de texto nao analisado **e** `hibrida` ligado.\n\nE o risco mais serio do projeto (secao 10, linhas 451 a 462): sem este erro, metade do funil para de funcionar sem sintoma nenhum e a conclusao vira \"a hibrida nao ajudou\" quando a hibrida nunca rodou.\n\n**Estado exigido:** indice criado sem mapping explicito, deixando o motor inferir o tipo do campo de texto (criterio 9, linha 429). Nao ha como provocar por requisicao.\n\nA linha 330 do FDD avisa: o tratador precisa entrar na lista ordenada de `error_handlers.py` **antes** do generico, senao isto vira 500. Um 500 aqui e exatamente esse defeito, e o teste diz isso na mensagem."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409, nao 500 (FDD secao 6, linhas 322 e 330)', function () {",
+                  "    if (pm.response.code === 500) {",
+                  "        pm.expect.fail('500 significa que InvalidIndexMappingException caiu no tratador generico; ela precisa vir antes dele em error_handlers.py (FDD linha 330).');",
+                  "    }",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('code = INVALID_INDEX_MAPPING (FDD secao 5, linha 269)', function () {",
+                  "    pm.expect(json.code).to.eql('INVALID_INDEX_MAPPING');",
+                  "});",
+                  "",
+                  "pm.test('a mensagem traz a receita de reindexacao (FDD linha 322)', function () {",
+                  "    pm.expect(String(json.detail).toLowerCase()).to.match(/reindex|recri|ingest/);",
+                  "});",
+                  "",
+                  "pm.test('nao e confundido com indice vazio', function () {",
+                  "    pm.expect(json.code).to.not.eql('EMPTY_INDEX');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — indice mal mapeado com hibrida desligado (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": false,\n    \"rerank\": true,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "A outra metade do criterio 9 (linhas 429 a 431), e o par obrigatorio do request anterior: **no mesmo indice mal mapeado**, uma consulta com `hibrida` desligado responde normalmente, porque a busca densa nao depende do campo de texto analisado (FDD secao 6, linha 322).\n\nRode os dois em sequencia, contra o mesmo estado. Um 409 aqui significa que a checagem de mapping ficou incondicional, o que degradaria o caminho denso por um problema que nao e dele.\n\n`keyword_s` continua ausente, porque `hibrida` esta desligado; `rerank_s` presente."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200: mapping ruim nao falha com hibrida desligado (criterio 9, linha 431)', function () {",
+                  "    if (pm.response.code === 409) {",
+                  "        pm.expect.fail('409 aqui significa checagem de mapping incondicional; ela so vale com hibrida ligado (FDD linha 322).');",
+                  "    }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const t = json.timings || {};",
+                  "",
+                  "pm.test('keyword_s AUSENTE com hibrida desligado (FDD linhas 153 e 350)', function () {",
+                  "    pm.expect(t).to.not.have.property('keyword_s');",
+                  "});",
+                  "",
+                  "pm.test('rerank_s presente com rerank ligado (FDD linha 421)', function () {",
+                  "    pm.expect(t).to.have.property('rerank_s');",
+                  "});",
+                  "",
+                  "pm.test('distance AUSENTE: rerank ligado invalida a distancia (FDD linha 208)', function () {",
+                  "    (json.hits || []).forEach(function (h, i) {",
+                  "        pm.expect(h, 'hits[' + i + ']').to.not.have.property('distance');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('invariante: refused true implica citations vazia (FDD linha 345)', function () {",
+                  "    if (json.refused === true) {",
+                  "        pm.expect(json.citations || []).to.be.an('array').that.is.empty;",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — candidates acima do teto (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidatesForaDeFaixa}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "`candidates = 51`, um acima do teto de 50 (FDD secao 5, linha 184). `InvalidParameterException` nomeando parametro, valor e faixa, 422, validado no construtor do servico dono (secao 6, linha 324).\n\nO teto e 50 e nao 100 por decisao de latencia (linhas 191 e 192): o custo do cross encoder e aproximadamente linear no numero de pares. O teto e revisavel com a primeira medicao real — se ele mudar, este request e o `/capabilities` mudam juntos, e e por isso que o valor esta em variavel de colecao."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 324)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('a mensagem nomeia parametro, valor e faixa (FDD linha 324)', function () {",
+                  "    const d = String(json.detail);",
+                  "    pm.expect(d.toLowerCase(), 'sem o nome do parametro').to.include('candidates');",
+                  "    pm.expect(d, 'sem o valor recebido').to.include(String(pm.variables.get('candidatesForaDeFaixa')));",
+                  "    pm.expect(d, 'sem o teto da faixa').to.include('50');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — rrf_k abaixo do piso (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfKForaDeFaixa}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "`rrf_k = 0`, um abaixo do piso de 1 (FDD secao 5, linha 185). Mesmo tratamento da linha 324 da secao 6.\n\nO valor tem consequencia matematica, nao so de faixa: `rrf_k` e o amortecimento de `1 / (rrf_k + posicao + 1)` (linha 127). Zero nao explode a formula, o que e justamente o motivo de a faixa precisar ser validada e nao apenas confiada — um `rrf_k` invalido produziria uma fusao silenciosamente diferente da especificada."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 324)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('a mensagem nomeia parametro, valor e faixa (FDD linha 324)', function () {",
+                  "    const d = String(json.detail);",
+                  "    pm.expect(d.toLowerCase(), 'sem o nome do parametro').to.include('rrf_k');",
+                  "    pm.expect(d, 'sem o piso da faixa').to.include('1');",
+                  "});",
+                  "",
+                  "pm.test('nenhum resultado parcial acompanha o erro (FDD linha 163)', function () {",
+                  "    pm.expect(json).to.not.have.property('hits');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — pergunta vazia (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaVazia}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Pergunta vazia, 422 herdado (FDD secao 6, linha 326; secao 5, linha 272). O contrato tambem sustenta este caso por conta propria: `question` tem `minLength: 1` no `rag-api.yaml`.\n\nE o unico erro desta pasta que **nao depende de estado nenhum** — roda a qualquer momento, com ou sem indice, com ou sem Elasticsearch no ar, desde que o processo esteja de pe. Bom primeiro request para conferir que a camada HTTP subiu."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 6, linha 326; contrato: question minLength 1)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('nao gastou chamada paga: nenhum timing na resposta de erro', function () {",
+                  "    pm.expect(json).to.not.have.property('timings');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — motor de busca fora do ar (503)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ask"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaFactual}}\",\n  \"options\": {\n    \"k\": {{k}},\n    \"hibrida\": true,\n    \"rerank\": true,\n    \"candidates\": {{candidates}},\n    \"rrf_k\": {{rrfK}},\n    \"history\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "`ServiceUnavailableException` com a receita `docker compose up -d elasticsearch` (FDD secao 6, linha 319; secao 5, linha 273).\n\n**Estado exigido:** Elasticsearch derrubado (`docker compose stop elasticsearch`) com a API de pe. Nao e provocavel por requisicao — e falha de transporte.\n\nO teste confere a receita literal, porque e ela que distingue este 503 de um 503 generico, e confere que nao veio resultado parcial (FDD linha 163: motor caindo no meio nao produz resultado parcial).\n\nO **cluster degradado** (linha 320) tambem devolve 503 e nao tem request proprio: exige um cluster amarelo ou vermelho de proposito. Mesma coisa para a falha ao carregar o cross encoder (linha 327), que tambem e 503 e **nunca degrada em silencio para \"sem rerank\"** — nao ha requisicao que a provoque."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 503 (FDD secao 5, linha 273; secao 6, linha 319)', function () {",
+                  "    pm.response.to.have.status(503);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});",
+                  "",
+                  "pm.test('a mensagem traz a receita literal (FDD linha 319)', function () {",
+                  "    pm.expect(String(json.detail)).to.include('docker compose up -d elasticsearch');",
+                  "});",
+                  "",
+                  "pm.test('distinto de indice vazio (criterio 10, linha 432)', function () {",
+                  "    pm.expect(json.code).to.not.eql('EMPTY_INDEX');",
+                  "});",
+                  "",
+                  "pm.test('sem resultado parcial (FDD linha 163)', function () {",
+                  "    pm.expect(json).to.not.have.property('hits');",
+                  "    pm.expect(json).to.not.have.property('text');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
