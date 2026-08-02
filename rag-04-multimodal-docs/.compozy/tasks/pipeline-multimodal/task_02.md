@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Contrato compartilhado 1.3.0
 type: docs
 complexity: low
@@ -36,12 +36,12 @@ só podem implementar o que este yaml publicar.
 
 ## Subtasks
 
-- [ ] 2.1 Bump de versão e changelog no cabeçalho do yaml
-- [ ] 2.2 Campos `kind` e `content_html` no `SearchHit` com semântica completa
-- [ ] 2.3 Campo `elements` no `IngestionReport`
-- [ ] 2.4 Nota de idempotência na descrição do `POST /ingest`
-- [ ] 2.5 Campo de contagem do docstore no `/health` e exemplo de 422 do `/ingest`
-- [ ] 2.6 Validar o yaml e atualizar `divergencias.md`
+- [x] 2.1 Bump de versão e changelog no cabeçalho do yaml
+- [x] 2.2 Campos `kind` e `content_html` no `SearchHit` com semântica completa
+- [x] 2.3 Campo `elements` no `IngestionReport`
+- [x] 2.4 Nota de idempotência na descrição do `POST /ingest`
+- [x] 2.5 Campo de contagem do docstore no `/health` e exemplo de 422 do `/ingest`
+- [x] 2.6 Validar o yaml e atualizar `divergencias.md`
 
 ## Implementation Details
 
@@ -75,8 +75,8 @@ está na seção 5 do techspec e no ADR-004 do projeto.
 
 Sem `_tests.md`; casos inline (verificação de schema, sem serviço):
 
-- [ ] T2.1 — O yaml parseia sem erro e `info.version == 1.3.0`; `SearchHit.required` continua exatamente `[source]` e `IngestionReport.required` continua `[pages, chunks, seconds]`.
-- [ ] T2.2 — Os campos `kind`, `content_html` e `elements` existem como opcionais com os enums/tipos do ADR-004.
+- [x] T2.1 — O yaml parseia sem erro e `info.version == 1.3.0`; `SearchHit.required` continua exatamente `[source]` e `IngestionReport.required` continua `[pages, chunks, seconds]`.
+- [x] T2.2 — Os campos `kind`, `content_html` e `elements` existem como opcionais com os enums/tipos do ADR-004.
 
 ## Success Criteria
 

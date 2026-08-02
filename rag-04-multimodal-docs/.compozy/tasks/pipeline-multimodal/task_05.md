@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Frontend 1.3.0
 type: frontend
 complexity: medium
@@ -36,12 +36,12 @@ projetos 1 a 3.
 
 ## Subtasks
 
-- [ ] 5.1 Adicionar a dependência de sanitização e o utilitário de sanitização
-- [ ] 5.2 Componente de selo de `kind` no molde da `Procedencia`
-- [ ] 5.3 Renderização da tabela sanitizada com contêiner de rolagem própria
-- [ ] 5.4 Extrair componente compartilhado de trecho e aplicar em `App.jsx` e `Conversa.jsx`
-- [ ] 5.5 Contagens `elements` no relatório de ingestão
-- [ ] 5.6 Verificação manual de aditividade contra um projeto anterior
+- [x] 5.1 Adicionar a dependência de sanitização e o utilitário de sanitização
+- [x] 5.2 Componente de selo de `kind` no molde da `Procedencia`
+- [x] 5.3 Renderização da tabela sanitizada com contêiner de rolagem própria
+- [x] 5.4 Extrair componente compartilhado de trecho e aplicar em `App.jsx` e `Conversa.jsx`
+- [x] 5.5 Contagens `elements` no relatório de ingestão
+- [x] 5.6 Verificação manual de aditividade contra um projeto anterior
 
 ## Implementation Details
 
@@ -81,13 +81,38 @@ já em 1.3.0 (task_02).
 Sem `_tests.md`; casos inline (na infra de teste que o frontend tiver; na ausência de
 harness, testes do utilitário de sanitização + verificação manual documentada):
 
-- [ ] T5.1 — Sanitização: entrada com `<script>` e handlers `on*` sai limpa; `<table><tr><td>` sobrevive intacta.
-- [ ] T5.2 — Hit `kind=tabela` com `content_html` renderiza elemento `<table>` real; sem `content_html`, cai para o excerpt texto.
-- [ ] T5.3 — Hit sem `kind` (payload dos projetos 1 a 3) renderiza exatamente como hoje, sem selo.
-- [ ] T5.4 — Relatório sem `elements` não mostra as linhas novas; com `elements`, mostra as três contagens.
+- [x] T5.1 — Sanitização: entrada com `<script>` e handlers `on*` sai limpa; `<table><tr><td>` sobrevive intacta.
+- [x] T5.2 — Hit `kind=tabela` com `content_html` renderiza elemento `<table>` real; sem `content_html`, cai para o excerpt texto.
+- [x] T5.3 — Hit sem `kind` (payload dos projetos 1 a 3) renderiza exatamente como hoje, sem selo.
+- [x] T5.4 — Relatório sem `elements` não mostra as linhas novas; com `elements`, mostra as três contagens.
 
 ## Success Criteria
 
 - Every assigned test case implemented and passing
 - Nenhum `dangerouslySetInnerHTML` sobre conteúdo não sanitizado (audite por grep)
 - Página sem rolagem horizontal com tabela larga
+
+## Notas de execução
+
+- Harness criado nesta task: `vitest` + `jsdom` em `../frontend` (`npm test`). O jsdom é
+  requisito do DOMPurify, não preferência: sem `window` ele devolveria o HTML intacto.
+- 18 testes verdes, `oxlint --deny-warnings` limpo, `vite build` limpo, backend do rag-04
+  intocado (mypy limpo em 65 arquivos). Auditoria de XSS: um único
+  `dangerouslySetInnerHTML`, em `src/Trecho.jsx`, sobre o retorno de `sanitizaHtml`.
+- 5.6 foi fechada por comparação de markup, mais forte que a inspeção visual: o
+  `renderToStaticMarkup` do trecho novo sobre payload 1.2.0 é **idêntico byte a byte** ao
+  da versão em `git show HEAD:frontend/src/App.jsx`. Foi esse diff que fez cair o
+  invólucro `<span class="trecho-marcas">` da primeira versão, hoje substituído por
+  `margin-left: auto` no selo.
+- Renderização também exercitada com a tabela REAL do corpus
+  (`data/docstore/2545695...`, Petrobras 3T24): 18 `<tr>`, 9 `<th>`, 153 `<td>`,
+  0 `<script>`.
+
+### Ressalva aberta
+
+**US-010.EC-2 não foi verificada em navegador**: não há navegador headless neste
+ambiente (sem chromium, sem playwright/puppeteer). A garantia hoje é o CSS
+(`.trecho-tabela { max-width: 100%; overflow-x: auto }` dentro de `.app` com
+`max-width: 1000px` e `box-sizing: border-box`). Checagem do autor: `npm run dev`,
+apontar para o rag-04 em `:8080` e perguntar "receita de vendas da Petrobras em milhões
+de reais no 3T24" com `k=8` — a formulação que recupera a tabela (risco 3 do FDD).

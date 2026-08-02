@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Medição e runbook de operações
 type: test
 complexity: medium
@@ -33,10 +33,10 @@ publicáveis, incluindo a pergunta-critério do guia com evidência de HTML no p
 
 ## Subtasks
 
-- [ ] 6.1 Extrair âncoras do PDF por caminho independente (pypdf) e montar `perguntas.json`
-- [ ] 6.2 Script de medição com `--sem-geracao`, métricas por classe e evidência de `content_html`
-- [ ] 6.3 Rodar a medição real e registrar a primeira rodada datada no README
-- [ ] 6.4 README de operations completo (pré-requisitos, custo, inspeção, reset)
+- [x] 6.1 Extrair âncoras do PDF por caminho independente (pypdf) e montar `perguntas.json`
+- [x] 6.2 Script de medição com `--sem-geracao`, métricas por classe e evidência de `content_html`
+- [x] 6.3 Rodar a medição real e registrar a primeira rodada datada no README
+- [x] 6.4 README de operations completo (pré-requisitos, custo, inspeção, reset)
 
 ## Implementation Details
 
@@ -73,9 +73,9 @@ tabela, buscar a âncora também no `content_html` do hit.
 
 Sem `_tests.md`; casos inline:
 
-- [ ] T6.1 — `perguntas.json` valida contra a estrutura esperada (toda pergunta tem classe, âncora não vazia para classes factuais, controle negativo marcado).
-- [ ] T6.2 — Normalização de âncora: função de normalização casa âncora com variações de caixa/acentuação/espaço (unitário, sem rede).
-- [ ] T6.3 — `--sem-geracao` executa a medição de recuperação sem nenhuma chamada ao gerador (fake/flag conta chamadas) e imprime a tabela por classe.
+- [x] T6.1 — `perguntas.json` valida contra a estrutura esperada (toda pergunta tem classe, âncora não vazia para classes factuais, controle negativo marcado).
+- [x] T6.2 — Normalização de âncora: função de normalização casa âncora com variações de caixa/acentuação/espaço (unitário, sem rede).
+- [x] T6.3 — `--sem-geracao` executa a medição de recuperação sem nenhuma chamada ao gerador (fake/flag conta chamadas) e imprime a tabela por classe.
 
 ## Success Criteria
 

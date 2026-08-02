@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 title: Pipeline de ingestão de ponta a ponta
 type: backend
 complexity: high
@@ -41,14 +41,14 @@ aqui não existe para a consulta.
 
 ## Subtasks
 
-- [ ] 3.1 `PartitionService` com cache por hash e descarte de cache corrompido
-- [ ] 3.2 Roteamento por categoria com `chunk_by_title` e unidades próprias para tabela/imagem
-- [ ] 3.3 `doc_id` determinístico no domínio, com serialização estável
-- [ ] 3.4 `DocstoreRepository` e `VectorRepository` atrás de interfaces
-- [ ] 3.5 `TableSummaryService` e `ImageDescriptionService` (Protocol + adaptador OpenAI)
-- [ ] 3.6 `IngestionFacade`, `ingest.py`, `POST /ingest` com `elements` e idempotência
-- [ ] 3.7 Script de inspeção de tabelas em `docs/operations/` (sem custo)
-- [ ] 3.8 Logs estruturados por estágio e testes do escopo fixado
+- [x] 3.1 `PartitionService` com cache por hash e descarte de cache corrompido
+- [x] 3.2 Roteamento por categoria com `chunk_by_title` e unidades próprias para tabela/imagem
+- [x] 3.3 `doc_id` determinístico no domínio, com serialização estável
+- [x] 3.4 `DocstoreRepository` e `VectorRepository` atrás de interfaces
+- [x] 3.5 `TableSummaryService` e `ImageDescriptionService` (Protocol + adaptador OpenAI)
+- [x] 3.6 `IngestionFacade`, `ingest.py`, `POST /ingest` com `elements` e idempotência
+- [x] 3.7 Script de inspeção de tabelas em `docs/operations/` (sem custo)
+- [x] 3.8 Logs estruturados por estágio e testes do escopo fixado
 
 ## Implementation Details
 
@@ -81,7 +81,16 @@ contrato.
 
 - Ingestão completa funcionando: `ingest.py` e `POST /ingest` com relatório `elements`
 - Script de inspeção de tabelas rodando sem API
-- Corpus Petrobras ingerido nos dois armazéns, ligado por `doc_id`
+- Corpus Petrobras ingerido nos dois armazéns, ligado por `doc_id` — **NÃO
+  EXECUTADO, bloqueado por ambiente.** Dois bloqueios independentes, ambos
+  exigindo o autor: (1) `sudo apt install -y poppler-utils tesseract-ocr
+  tesseract-ocr-por` continua pendente desde a task_01, e sem ele o `hi_res`
+  falha; (2) não há `.env` na máquina, logo não há chave da OpenAI — e a
+  ingestão real gasta dinheiro (um resumo por tabela, uma descrição de visão por
+  figura). O código do caminho está entregue e coberto por testes com dublês; o
+  estágio local foi exercido contra o PDF real com `strategy=fast` (1170
+  elementos → 44 unidades em 16 páginas, acerto de cache em 0,04 s), o que prova
+  partição, cache e roteamento, mas **não** a detecção de tabela nem o `hi_res`.
 - Every test case assigned in `## Tests` implemented and passing **(REQUIRED)**
 
 ## Tests
@@ -89,14 +98,14 @@ contrato.
 Sem `_tests.md`; casos inline (pytest, escopo fixado nas guidelines — unitários sem
 rede; os de integração com Chroma local quando disponível):
 
-- [ ] T3.1 — Roteamento: lista sintética de elementos (narrativos, `Table`, `Image`) produz unidades com `kind` correto; tabela e imagem nunca agrupadas; narrativo agrupado por título.
-- [ ] T3.2 — `doc_id`: mesmo conteúdo produz o mesmo id em duas chamadas; conteúdos diferentes produzem ids diferentes; id não contém caracteres de caminho perigosos.
-- [ ] T3.3 — Correspondência: após indexar unidade sintética, a representação no vetorial e o original no docstore compartilham o `doc_id` e o `kind`.
-- [ ] T3.4 — Idempotência: indexar a mesma unidade duas vezes não duplica no docstore nem dispara segundo enriquecimento (enriquecedor fake conta chamadas).
-- [ ] T3.5 — Cache: partição com cache válido não invoca o particionador (fake conta chamadas); cache corrompido é descartado e refeito.
-- [ ] T3.6 — Glob: arquivos em `pdfs/fora-do-corpus/` nunca entram na seleção.
-- [ ] T3.7 — Ordem de gravação: falha injetada na gravação vetorial deixa o original no docstore (nunca o inverso).
-- [ ] T3.8 — Relatório: ingestão sintética devolve `elements` com zeros explícitos quando a categoria não ocorre.
+- [x] T3.1 — Roteamento: lista sintética de elementos (narrativos, `Table`, `Image`) produz unidades com `kind` correto; tabela e imagem nunca agrupadas; narrativo agrupado por título.
+- [x] T3.2 — `doc_id`: mesmo conteúdo produz o mesmo id em duas chamadas; conteúdos diferentes produzem ids diferentes; id não contém caracteres de caminho perigosos.
+- [x] T3.3 — Correspondência: após indexar unidade sintética, a representação no vetorial e o original no docstore compartilham o `doc_id` e o `kind`.
+- [x] T3.4 — Idempotência: indexar a mesma unidade duas vezes não duplica no docstore nem dispara segundo enriquecimento (enriquecedor fake conta chamadas).
+- [x] T3.5 — Cache: partição com cache válido não invoca o particionador (fake conta chamadas); cache corrompido é descartado e refeito.
+- [x] T3.6 — Glob: arquivos em `pdfs/fora-do-corpus/` nunca entram na seleção.
+- [x] T3.7 — Ordem de gravação: falha injetada na gravação vetorial deixa o original no docstore (nunca o inverso).
+- [x] T3.8 — Relatório: ingestão sintética devolve `elements` com zeros explícitos quando a categoria não ocorre.
 
 ## Success Criteria
 
