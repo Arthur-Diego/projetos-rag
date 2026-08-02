@@ -80,10 +80,13 @@ Padrões adotados
 
 | Componente | Responsabilidades | Dependências |
 | ----------- | ----------------- | ------------ |
-| `PartitionService` (novo) | Rodar `unstructured hi_res` com `infer_table_structure` e extração de imagens; classificar elementos em texto, tabela e imagem; ler e gravar o cache de partição em `data/partition/` | `unstructured`, filesystem |
+| `PartitionService` (novo) | Rodar `unstructured hi_res` com `infer_table_structure` e extração de imagens; ler e gravar o cache de partição em `data/partition/` (atrás dos `Protocol` `Partitioner`/`PartitionCache`) | `unstructured`, filesystem |
+| `ElementRoutingService` (novo) | Classificar elementos em texto, tabela e imagem; agrupar narrativo com `chunk_by_title`; calcular `doc_id`; marcar `content_is_html` na tabela sem HTML estrutural (a tradução elemento→unidade saiu do `PartitionService` na implementação) | `unstructured` |
+| `EnrichmentService` (novo) | Orquestrar o estágio pago apenas das unidades novas: resumos via `TableSummaryService`, descrições via `ImageDescriptionService` | services abaixo |
+| `IndexingService` (novo) | Gravar nos dois armazéns na ordem FIXA: original no docstore antes da representação no índice (mitigação do risco 4) | repositórios |
 | `TableSummaryService` (novo) | Resumir tabelas HTML em linguagem natural buscável (entidades, métricas, período, nomes de coluna explícitos), em lote com `max_concurrency=5` | OpenAI (gpt-4o-mini) |
 | `ImageDescriptionService` (novo, atrás de `Protocol`) | Descrever imagens extraídas via `gpt-4o-mini` visão (base64 em mensagem `image_url`) | OpenAI (visão) |
-| `VectorRepository` (adaptado) | Indexar e buscar as representações no Chroma (porta 8002), com `doc_id`, `kind` e página no metadado | Chroma via HttpClient |
+| `VectorRepository` (adaptado) | Indexar e buscar as representações no Chroma (porta 8002), com `doc_id`, `kind` e página no metadado; responder `known(ids)` para a reconciliação de retomada da ingestão (ADR-007) | Chroma via HttpClient |
 | `DocstoreRepository` (novo) | Guardar e resolver originais por `doc_id` num `LocalFileStore` em `data/docstore/`, atrás da interface `BaseStore` | Filesystem |
 | `RetrievalService` (adaptado) | Buscar top-k no vetorial, extrair `doc_id`s, resolver originais no docstore, devolver resultado com métrica por estágio | `VectorRepository`, `DocstoreRepository` |
 | `IngestionFacade` | Orquestrar partição -> enriquecimento -> indexação dupla, sem lógica própria | services |
@@ -128,8 +131,10 @@ Entidades principais
   página, origem. Existe apenas durante a ingestão
 - `IndexedRepresentation`: o que foi embedado (texto direto, resumo de tabela ou
   descrição de imagem); carrega `doc_id`, `kind` e página no metadado. Vive no Chroma
-- `StoredOriginal`: o conteúdo íntegro (texto, HTML da tabela ou caminho da imagem em
-  `data/figures/`), com metadados de fonte. Vive no docstore
+- `StoredOriginal`: o conteúdo íntegro (texto, HTML da tabela — com a marca
+  `content_is_html` para o fallback sem estrutura — ou, para imagem, a própria
+  DESCRIÇÃO gerada, com o caminho do arquivo em `data/figures/` como atributo
+  separado), com metadados de fonte. Vive no docstore
 
 Relações
 - 1 `DocumentElement` -> 1 `StoredOriginal` -> N `IndexedRepresentation`. O N é
@@ -312,6 +317,10 @@ ADRs associados (a escrever em `docs/adrs/generated/RAG/`)
 - ADR-005: cache da partição bruta como fronteira entre estágio local e estágio pago
 - ADR-006: descritor de imagens atrás de `Protocol` (visão da OpenAI hoje, modelo local
   como segunda implementação plausível)
+- ADR-007 (pós-implementação): idempotência reconciliada pelos DOIS armazéns —
+  retomada de falha parcial re-indexa do docstore sem repagar enriquecimento
+- ADR-008 (pós-implementação): `content_html` só com HTML estrutural — tabela
+  detectada e não estruturada degrada para `excerpt`
 
 Decisões pendentes
 - Rota de mídia para servir figuras ao frontend (v2; hoje a imagem é descrição textual)

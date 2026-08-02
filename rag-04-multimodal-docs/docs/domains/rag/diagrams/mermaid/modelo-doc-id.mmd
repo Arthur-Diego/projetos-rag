@@ -5,6 +5,9 @@
 %% entra sem migracao. E tambem o plano de contingencia do risco 3, o resumo que nao casa
 %% com as perguntas reais.
 %% DocumentElement existe APENAS durante a ingestao: nao e persistido em armazem nenhum.
+%% Imagem e a UNICA categoria em que original e representacao coincidem: nao ha texto por
+%% baixo da figura para servir de original, entao o conteudo gravado e a propria descricao
+%% gerada e o caminho da figura fica em figure_path, atributo separado.
 erDiagram
     DocumentElement ||--|| StoredOriginal : "vira exatamente um original"
     StoredOriginal ||--o{ IndexedRepresentation : "é indexado como N representações, sob o mesmo doc_id"
@@ -19,7 +22,9 @@ erDiagram
     StoredOriginal {
         string doc_id PK "hash de conteúdo mais origem mais tipo, determinístico (ADR-003)"
         string kind "texto, tabela ou imagem"
-        string conteudo "ÍNTEGRO: texto cru, HTML completo ou caminho em data/figures/"
+        string conteudo "ÍNTEGRO: texto cru, HTML completo da tabela ou a DESCRIÇÃO gerada da imagem"
+        bool content_is_html "só significa algo para tabela: False no fallback sem HTML estrutural"
+        string figure_path "só para kind=imagem: caminho do arquivo em data/figures/, atributo à parte do conteúdo"
         int page "vale para os três kinds"
         string source "PDF de origem"
         string armazem "LocalFileStore em data/docstore/, a fonte de verdade"
@@ -27,7 +32,7 @@ erDiagram
 
     IndexedRepresentation {
         string doc_id FK "metadado que resolve o original, única ligação entre os armazéns"
-        string representacao "texto direto, resumo da tabela ou descrição da imagem (ADR-002)"
+        string representacao "texto direto, resumo da tabela ou descrição da imagem (ADR-002); para imagem é IGUAL ao conteúdo do original"
         vector embedding "text-embedding-3-small, sobre a representação e nunca sobre o original"
         string kind "repetido no metadado para filtro e para o selo do frontend"
         int page "repetido no metadado, vira SearchHit.page"

@@ -76,3 +76,10 @@ Publicação da 1.3.0 em 02/08/2026, tudo no mesmo arquivo
 Aditividade auditada na publicação: nenhum campo saiu de `required`, nenhum campo
 existente mudou de tipo, nenhuma rota ou status sumiu. `SearchHit.required` continua
 `[source]` e `IngestionReport.required` continua `[pages, chunks, seconds]`.
+
+## Nota pós-fechamento (02/08/2026)
+
+A 1.3.0 ganhou dois campos opcionais depois da geração desta coleção, na
+reconciliação do dd-doc-sync: `timings.docstore_s` (POST /ask) e
+`degraded_reason` (GET /health). Nenhuma assertion da coleção é afetada
+(campos aditivos, não exigidos); a coleção permanece válida contra o serviço.

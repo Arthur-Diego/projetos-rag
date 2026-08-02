@@ -5,6 +5,9 @@
 %%      (minutos de CPU); do enriquecimento para baixo cada elemento vira chamada paga.
 %%   2. fronteira da IDEMPOTENCIA (ADR-003): o doc_id decide quem chega a pagar. Unidade
 %%      com doc_id ja conhecido nao resume, nao embeda e nao repaga.
+%%      A decisao consulta os DOIS armazens, e nao so o docstore: original gravado com
+%%      representacao ausente no indice e retomada de falha parcial, e volta ao indice
+%%      a partir do original persistido -- repaga o embedding, nunca o enriquecimento.
 flowchart TD
     inicio(["ingest.py ou POST /ingest: IngestionFacade.ingest"])
 
@@ -29,13 +32,16 @@ flowchart TD
 
     roteia{"5. Roteamento por CATEGORIA do elemento"}
     unidadeTexto["5a. Texto narrativo<br/>agrupado com chunk_by_title, ~1000 caracteres<br/>uma unidade por grupo"]
-    unidadeTabela["5b. Table: uma unidade POR TABELA<br/>fora do agrupamento, carrega o HTML estruturado"]
+    unidadeTabela["5b. Table: uma unidade POR TABELA<br/>fora do agrupamento, carrega o HTML estruturado<br/>content_is_html=true quando veio text_as_html do Table Transformer"]
+    tabelaSemHtml["5b'. Table SEM text_as_html: detectada, não estruturada<br/>content é texto plano de fallback e content_is_html=false<br/>a unidade indexa normalmente, mas NÃO publicará content_html na consulta<br/>o hit degrada para excerpt, caminho que o frontend já trata"]
     unidadeImagem["5c. Image: uma unidade POR IMAGEM<br/>fora do agrupamento, carrega o caminho em data/figures/"]
     semTabela["Nenhuma tabela detectada<br/>o relatório sai com tabelas: 0 EXPLÍCITO<br/>sinal do risco 1, nunca falha silenciosa"]
 
     docId["6. doc_id determinístico por unidade<br/>hash de conteúdo mais origem mais tipo (ADR-003)<br/>conteúdo idêntico gera doc_id idêntico em qualquer execução"]
     jaExiste{"7. Esse doc_id já existe no docstore?"}
+    reconcilia{"7b. RECONCILIAÇÃO: dos conhecidos no docstore,<br/>quais já têm representação no índice?<br/>VectorRepository.known sobre os doc_ids conhecidos"}
     pulada["Unidade PULADA<br/>sem enriquecimento e sem embedding: NÃO REPAGA<br/>log reporta novos=0, reaproveitados=N"]
+    reindexa["Retomada de falha parcial: original no docstore,<br/>representação AUSENTE no índice<br/>re-indexa A PARTIR DO ORIGINAL PERSISTIDO<br/>repaga só o embedding, NUNCA o enriquecimento (ADR-003)"]
 
     subgraph estagioPago["Estágio PAGO: 8. enriquecimento SÓ das unidades novas, max_concurrency=5"]
         direction TB
@@ -53,7 +59,7 @@ flowchart TD
 
     subgraph indexacaoDupla["9. Indexação DUPLA, em ordem FIXA (ADR-001)"]
         direction TB
-        gravaOriginal["9a. PRIMEIRO o original íntegro no DocstoreRepository<br/>LocalFileStore em data/docstore/, a FONTE DE VERDADE<br/>texto cru, HTML da tabela ou caminho da figura"]
+        gravaOriginal["9a. PRIMEIRO o original íntegro no DocstoreRepository<br/>LocalFileStore em data/docstore/, a FONTE DE VERDADE<br/>texto cru, HTML da tabela ou a DESCRIÇÃO gerada da imagem<br/>o caminho em data/figures/ viaja em figure_path, à parte"]
         gravaRepresentacao["9b. DEPOIS a representação no Chroma 8002<br/>metadados doc_id, kind, page e source"]
         gravaOriginal --> gravaRepresentacao
     end
@@ -67,17 +73,22 @@ flowchart TD
     leCache --> roteia
 
     roteia -- "NarrativeText e afins" --> unidadeTexto
-    roteia -- "Table" --> unidadeTabela
+    roteia -- "Table com text_as_html" --> unidadeTabela
+    roteia -. "Table sem text_as_html" .-> tabelaSemHtml
     roteia -- "Image" --> unidadeImagem
     roteia -. "zero Table" .-> semTabela
     semTabela --> relatorio
 
     unidadeTexto --> docId
     unidadeTabela --> docId
+    tabelaSemHtml --> docId
     unidadeImagem --> docId
 
     docId --> jaExiste
-    jaExiste -. "sim, já ingerida" .-> pulada
+    jaExiste -. "sim, já ingerida" .-> reconcilia
+    reconcilia -- "tem representação no índice" --> pulada
+    reconcilia -. "original sem representação" .-> reindexa
+    reindexa --> gravaOriginal
     pulada --> relatorio
 
     jaExiste -- "não, unidade nova" --> textoDireto
@@ -109,5 +120,5 @@ flowchart TD
     class hiRes,docId,gravaOriginal critico
     class glob,hashPdf,gravaCache,leCache,unidadeTexto,unidadeTabela,unidadeImagem,gravaRepresentacao,relatorio passo
     class textoDireto,resumoTabela,descricaoImagem pago
-    class descarta,pulada,semTabela,imagemPendente,falhaOpenai desvio
+    class descarta,pulada,semTabela,imagemPendente,falhaOpenai,tabelaSemHtml,reindexa desvio
     class alerta,invariante nota

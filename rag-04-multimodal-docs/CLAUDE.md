@@ -13,9 +13,10 @@ O guia da trilha inteira está em `../README.md`, seção "Projeto 4".
 > Pipeline de ponta a ponta no ar: ingestão multimodal com cache e idempotência,
 > consulta com resolução de originais, `POST /ask`, `POST /ingest`, `GET /health`
 > (com dessincronia) e `GET /capabilities`; `ingest.py`, `ask.py`, `reset.py` e
-> `serve.py`. Corpus real ingerido (50 unidades, 9 tabelas). mypy limpo, 76 testes
+> `serve.py`. Corpus real ingerido (50 unidades, 9 tabelas). mypy limpo, 104 testes
 > verdes. O frontend genérico (`../frontend/`) consome a 1.3.0: tabela real
-> sanitizada, selo de `kind` e `elements` no relatório (18 testes, `npm test`).
+> sanitizada, selo de `kind` e `elements` no relatório (20 testes, `npm test`).
+> Rodada de revisão 001 remediada; ADR-007 e ADR-008 nasceram dela.
 > Medição publicada em `docs/operations/README.md`: tabela 1/5 com `k=8` e
 > **5/5 com `k=20`**, sempre pelo `content_html` — o gargalo é o ranking dos
 > resumos, não a indexação.
@@ -57,6 +58,8 @@ aqueles diretórios. Decisão herdada precisa de ADR próprio aqui.
 | 004 | Contrato compartilhado 1.3.0, aditivo: `kind`, `content_html`, `elements` |
 | 005 | Cache da partição bruta em `data/partition/`: fronteira entre estágio local e estágio pago |
 | 006 | Descritor de imagens atrás de `Protocol`: visão da OpenAI hoje, modelo local previsto |
+| 007 | Idempotência reconciliada pelos DOIS armazéns: retomada de falha parcial re-indexa do docstore sem repagar enriquecimento |
+| 008 | `content_html` só com HTML estrutural: tabela detectada e não estruturada degrada para `excerpt` |
 
 ## Setup
 

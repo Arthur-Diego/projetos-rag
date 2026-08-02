@@ -103,10 +103,17 @@ Suposições e restrições explícitas:
   CPU) e grava o cache.
 - Roteamento por categoria: elementos narrativos são agrupados com `chunk_by_title`
   (~1000 caracteres) em unidades de texto; cada `Table` vira unidade própria com HTML;
-  cada `Image` vira unidade própria com caminho do arquivo.
-- `doc_id` determinístico por unidade (hash de conteúdo + origem + tipo). Unidades
-  cujo `doc_id` já existe no docstore são puladas (idempotência: sem novo
-  enriquecimento, sem novo embedding).
+  cada `Image` vira unidade própria com caminho do arquivo. Tabela detectada sem
+  HTML estrutural (Table Transformer não devolveu `text_as_html`) fica com o texto
+  plano marcado `content_is_html=false` e não publica `content_html` na consulta
+  (ver ADR-008).
+- `doc_id` determinístico por unidade (hash de conteúdo + origem + tipo; para
+  imagem, hash dos BYTES do arquivo; conteúdo idêntico é deduplicado num único
+  `doc_id`). A idempotência olha os DOIS armazéns: unidade cujo `doc_id` já
+  existe no docstore é pulada (sem novo enriquecimento, sem novo embedding), e
+  unidade com original no docstore mas SEM representação no índice (retomada de
+  falha parcial) é re-indexada a partir do original persistido, repagando só o
+  embedding (ver ADR-007).
 - Enriquecimento pago só das unidades novas, com `max_concurrency=5`: tabelas passam
   pelo `TableSummaryService` (resumo com entidades, métricas, período e nomes de
   coluna); imagens pelo `ImageDescriptionService` se `descrever_imagens=true`
@@ -146,7 +153,8 @@ Suposições e restrições explícitas:
   indexadas nesta execução; unidades de imagem ficam pendentes para uma ingestão
   futura com a flag ligada.
 - Reset (script CLI): zera coleção do Chroma e `data/docstore/` na mesma operação;
-  preserva `data/partition/` por padrão; idempotente.
+  preserva `data/partition/` por padrão; idempotente. Pede confirmação interativa
+  (operação destrutiva); `--sim` pula o prompt para uso em script.
 - Frontend: `kind` ausente (projetos 1 a 3) mantém comportamento atual;
   `kind=tabela` sem `content_html` degrada para excerpt como texto.
 
@@ -189,8 +197,10 @@ aditiva sobre 1.2.0; editar o yaml ANTES de implementar o consumidor). Base URL 
 - Semântica dos campos novos (1.3.0): `kind` em cada hit (`texto|tabela|imagem`);
   com `kind=tabela`, `excerpt` carrega o resumo e `content_html` o HTML original; com
   `kind=imagem`, `excerpt` carrega a descrição; `content_html` presente apenas quando
-  `kind=tabela`; `provenance` ausente (só caminho denso). Opcional ausente é omitido
-  do JSON, nunca `null`.
+  `kind=tabela` E há HTML estrutural (fallback de tabela não estruturada degrada
+  para `excerpt`, ADR-008); `provenance` ausente (só caminho denso). `timings`
+  inclui `docstore_s` (resolução dos originais, decompondo `search_s` com
+  `dense_s`). Opcional ausente é omitido do JSON, nunca `null`.
 
 **Exemplo de requisição**
 
@@ -258,7 +268,9 @@ aditiva sobre 1.2.0; editar o yaml ANTES de implementar o consumidor). Base URL 
   dessincronia entre índice e docstore (contagens incompatíveis) ou docstore
   inacessível; 503 quando o Chroma está fora do ar. Campos opcionais do contrato
   (`collection`, `indexed_chunks`, `embedding_model`, `embedding_dimensions`)
-  preenchidos; contagem do docstore reportada em campo informativo do projeto.
+  preenchidos; contagem do docstore no campo `docstore_originals` (1.3.0) e a
+  evidência do estado degradado em `degraded_reason` (presente sempre que
+  `status=degraded`, com a receita de conserto).
 
 **Contrato 4: GET /capabilities**
 
@@ -271,10 +283,12 @@ aditiva sobre 1.2.0; editar o yaml ANTES de implementar o consumidor). Base URL 
 
 **Consumidor frontend (mesma entrega)**
 
-- Renderiza `content_html` como tabela real após sanitização (biblioteca de
-  sanitização definida na implementação; hipótese: DOMPurify); selo de `kind` no
-  cabeçalho do hit no molde da `Procedencia`; contagens `elements` no relatório de
-  ingestão. Campos ausentes degradam para o comportamento atual.
+- Renderiza `content_html` como tabela real após sanitização com DOMPurify
+  (hipótese fechada na implementação): allowlist de tags de tabela/ênfase e
+  atributos estruturais, `ALLOW_DATA_ATTR=false`, `ALLOW_ARIA_ATTR=true` e
+  fail-closed sem DOM (política registrada no adr-001 da sessão de PRD); selo de
+  `kind` no cabeçalho do hit no molde da `Procedencia`; contagens `elements` no
+  relatório de ingestão. Campos ausentes degradam para o comportamento atual.
 
 ---
 
@@ -289,6 +303,8 @@ Matriz de erros previstos e tratamentos:
 | Chroma fora do ar | 503 com `Problem` | ingestão e consulta falham pelo mesmo motivo |
 | OpenAI indisponível ou rate limit persistente | 503 com `Problem` | após retries com backoff |
 | `OPENAI_API_KEY` ausente | 500 com `Problem` | configuração, não dependência |
+| Corpus vazio no `POST /ingest` | 422 com `Problem` (`EMPTY_CORPUS`) | estado do pedido, não do servidor: quem resolve é quem chama, pondo PDF em `pdfs/` |
+| Partição falhou (dependência nativa ausente, PDF ilegível) | 422 com `Problem` (`PARTITION_FAILED`) | idem: não é configuração do backend nem dependência de rede |
 | PDF ausente no `ingest.py` | erro claro no console antes de custo | entrypoint valida caminho |
 | Cache de partição corrompido | refaz `hi_res` e regrava | log denuncia o descarte |
 | Falha no meio do enriquecimento | ingestão para com 503; reexecução retoma | unidades gravadas não repagam |
@@ -316,9 +332,12 @@ Matriz de erros previstos e tratamentos:
 
 **Métricas**
 
-- Ingestão: duração por fase (partição, enriquecimento, indexação), acerto de cache,
-  unidades novas vs reaproveitadas, contagens `elements` por tipo, tokens gastos em
-  resumos e descrições.
+- Ingestão: duração total e, por estágio, o sinal que o diagnostica — acerto de
+  cache na partição, unidades novas vs reaproveitadas (e retomadas) na
+  idempotência, tokens gastos em resumos e descrições no enriquecimento,
+  contagens gravadas na indexação, `elements` por tipo no relatório. (Duração
+  por fase individual ficou fora: os sinais acima respondem "onde parou e o que
+  custou" sem cronômetro por estágio.)
 - Consulta: duração por estágio (`search_s`, resolução no docstore, `generation_s`),
   hits por `kind` (a métrica "chegou tabela ao prompt?" é o critério do guia),
   tamanho do contexto em caracteres, taxa de recusa.

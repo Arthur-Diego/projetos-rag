@@ -37,6 +37,11 @@ info:
     - **`GET /health` ganha o campo `docstore_originals`.** Um projeto pode manter um
       segundo armazém com os originais, ligado ao índice por identificador. Índice e
       docstore dessincronizados são `degraded`, e continua sendo 200.
+    - **`GET /health` ganha `degraded_reason`**, opcional: a evidência que acompanha
+      todo `degraded` — qual lado está sobrando ou inacessível, e a receita.
+    - **`timings.docstore_s`**, opcional: a resolução dos originais no segundo
+      armazém, decompondo `search_s` junto com `dense_s` (mesmo precedente da
+      decomposição declarada na 1.2.0).
 
     **`excerpt` não muda de tipo nem de sentido, e HTML nunca entra nele.** O que
     muda é o que ele carrega conforme o `kind`: com `kind=tabela`, o resumo em
@@ -162,6 +167,13 @@ paths:
                       original sumiu, que vira resposta vazia sem erro nenhum. Nesse
                       caso o `status` é `degraded`, e **continua sendo 200**. Ausente
                       em projetos com um armazém só.
+                  degraded_reason:
+                    type: string
+                    description: |
+                      Opcional, desde 1.3.0. A evidência quando `status=degraded`:
+                      qual armazém está sobrando (ou inacessível) e a receita de
+                      conserto. `degraded` sem evidência é adjetivo, não diagnóstico —
+                      presente sempre que o status é `degraded`, ausente no `ok`.
         "503":
           description: Dependência externa fora do ar
           content:
@@ -597,6 +609,15 @@ components:
               description: |
                 Opcional, desde 1.2.0. Busca semântica. Inclui a chamada de embedding da
                 pergunta, que costuma dominar o custo do estágio.
+            docstore_s:
+              type: number
+              format: float
+              description: |
+                Opcional, desde 1.3.0. Resolução dos originais no segundo armazém, em
+                projetos multi-vector: os identificadores dos hits viram o conteúdo
+                íntegro que vai ao modelo. Decompõe `search_s` junto com `dense_s` —
+                quem somar os três conta a recuperação duas vezes. Ausente em
+                projetos com um armazém só.
             keyword_s:
               type: number
               format: float

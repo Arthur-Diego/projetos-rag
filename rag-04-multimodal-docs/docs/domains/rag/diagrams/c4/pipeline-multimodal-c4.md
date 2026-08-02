@@ -1,9 +1,11 @@
 # Diagramas C4 - Pipeline multimodal de ponta a ponta
 
 Fonte: `docs/domains/rag/features/pipeline-multimodal-fdd.md` (versão 1.0), com o HLD do
-domínio (`docs/domains/rag/hld.md`, versão 1.0) como contexto de apoio. O projeto ainda
-não tem código, então não há conferência contra `rag/`: tudo rastreia ao FDD, ao HLD e
-aos seis ADRs de `docs/adrs/generated/RAG/`.
+domínio (`docs/domains/rag/hld.md`, versão 1.0) como contexto de apoio. A primeira
+geração foi feita antes do código; em **2026-08-02**, com o pipeline implementado, esta
+geração foi **conferida contra o código real de `rag/`** (como o precedente do rag-03
+fez na segunda geração) e o nível C3 foi ajustado para refletir o que existe. Tudo
+rastreia ao FDD, ao HLD, aos seis ADRs de `docs/adrs/generated/RAG/` e, agora, a `rag/`.
 
 Idioma detectado no FDD: **português brasileiro**. Os três diagramas foram escritos no
 mesmo idioma, com acentuação correta, mantendo em inglês os termos técnicos e os nomes de
@@ -92,9 +94,11 @@ Três diferenças em relação àqueles arquivos, todas deliberadas:
 - **Quem lê `data/figures/`.** O FDD diz que a imagem vira base64 em mensagem
   `image_url`; a leitura do arquivo foi atribuída ao `ImageDescriptionService`, que é
   quem monta essa mensagem.
-- **Roteamento por categoria dentro do `PartitionService`.** O HLD atribui a ele a
-  classificação dos elementos; o `chunk_by_title` (~1000 caracteres) da entrevista foi
-  desenhado como responsabilidade dele, não como componente próprio.
+- **Roteamento por categoria dentro do `PartitionService`.** Era a inferência da
+  primeira geração (o HLD atribuía a ele a classificação). **Superada pelo código**: a
+  implementação separou o roteamento em `ElementRoutingService`, com o `chunk_by_title`
+  (~1000 caracteres) como responsabilidade dele. A conferência de 2026-08-02 atualizou o
+  C3 de acordo.
 
 ### Exclusões confirmadas
 
@@ -297,17 +301,24 @@ SHOW_LEGEND()
 - **Público**: liderança técnica e desenvolvimento.
 - **Camadas**: `api/`, `facade/`, `service/`, `repository/`, `presenter/`, `domain/`,
   no grafo estritamente descendente da guideline.
-- **Componentes novos**: `PartitionService`, `TableSummaryService`,
-  `ImageDescriptionService` (atrás de `Protocol`), `DocstoreRepository`.
-- **Cadeia da ingestão**: `IngestionFacade` orquestra partição, enriquecimento e
-  indexação dupla na ordem que garante a invariante (docstore primeiro, Chroma depois),
-  sem lógica própria.
+- **Componentes novos** (conferidos contra `rag/` em 2026-08-02): `PartitionService`
+  sobre o par `UnstructuredPartitioner`/`FilePartitionCache` (repository, atrás dos
+  `Protocol` `Partitioner`/`PartitionCache`), `ElementRoutingService`,
+  `EnrichmentService`, `IndexingService`, `TableSummaryService`,
+  `ImageDescriptionService` (atrás de `Protocol`), `DocstoreRepository`,
+  `PdfCorpusReader` (atrás do `Protocol` `CorpusReader`), `ResetFacade` e a porta
+  `IngestionLog` (o `ConsoleReporter` é o adaptador).
+- **Cadeia da ingestão**: `IngestionFacade` orquestra seleção, partição, roteamento,
+  idempotência (`known` nos dois armazéns, com retomada de falha parcial),
+  enriquecimento e indexação dupla, sem lógica própria; a ordem que garante a
+  invariante (docstore primeiro, Chroma depois) vive no `IndexingService`.
 - **Cadeia da consulta**: `QueryFacade` chama `RetrievalService` (busca densa, resolução
   dos originais por `doc_id`), `PromptBuilder` (originais íntegros, HTML inteiro) e
   `GenerationService` (recusa).
-- **Pontos de integração**: `VectorRepository` como único ponto que fala Chroma;
-  `DocstoreRepository` como único ponto que fala o docstore; três componentes falam
-  OpenAI (`TableSummaryService`, `ImageDescriptionService`, `GenerationService`).
+- **Pontos de integração**: `VectorRepository` como único ponto que fala Chroma, com a
+  operação `known(ids)` usada na reconciliação de retomada; `DocstoreRepository` como
+  único ponto que fala o docstore; três componentes falam OpenAI (`TableSummaryService`,
+  `ImageDescriptionService`, `GenerationService`).
 - **Notas**: uma por decisão vinculante (multi-vector seletivo, `doc_id` determinístico,
   `Protocol` do descritor, invariante do prompt), mais a semântica de status.
 
@@ -324,28 +335,37 @@ Container_Boundary(pacote, "rag/") {
 
   Component(api, "rag/api/", "FastAPI", "Rotas do contrato 1.3.0: /ask, /ingest, /health, /capabilities. Valida question e options.k na borda (422) e aplica require_index (409) antes de qualquer chamada paga. Traduz exceção de domínio em status.")
 
-  Component(ingestionFacade, "IngestionFacade", "facade", "Caso de uso da ingestão. Orquestra partição, roteamento, enriquecimento e indexação dupla, sem lógica própria. Pula unidades cujo doc_id já existe no docstore: reingestão inalterada custa zero.")
+  Component(ingestionFacade, "IngestionFacade", "facade", "Caso de uso da ingestão. Orquestra seleção, partição, roteamento, idempotência, enriquecimento e indexação dupla, sem lógica própria. RECONCILIA, não recria: pula doc_id que já existe no docstore e retoma falha parcial re-indexando original sem representação, sem repagar enriquecimento.")
   Component(queryFacade, "QueryFacade", "facade", "Caso de uso da consulta. Orquestra retrieval, prompt e geração, sem lógica própria. Pergunta única, sem histórico e sem reescrita.")
+  Component(resetFacade, "ResetFacade", "facade", "Caso de uso do reset. Zera o índice PRIMEIRO e o docstore DEPOIS (inverso exato da ordem de gravação) numa operação só, para nunca deixar metade viva. Preserva data/partition/ (ADR-005). Idempotente.")
 
-  Component(partition, "PartitionService", "service", "Roda o hi_res com infer_table_structure e extração de imagens (modelos locais em CPU: YOLOX, Table Transformer, Tesseract). Lê e grava o cache em data/partition/ por hash do PDF. Roteia por categoria: texto agrupado com chunk_by_title (~1000 caracteres), cada Table e cada Image como unidade própria.")
+  Component(partition, "PartitionService", "service", "Estágio local da ingestão: devolve os elementos brutos do PDF pagando o hi_res só quando não há cache válido. Não conhece unstructured nem disco: coordena um Partitioner e um PartitionCache injetados. Acerto e descarte de cache são sempre anunciados, nunca silenciosos.")
+  Component(routing, "ElementRoutingService", "service", "Única tradução de Element do unstructured para DocumentUnit do domínio. Texto agrupado com chunk_by_title (~1000 caracteres); cada Table e cada Image como unidade própria, NUNCA agrupada. Copia a figura canônica para data/figures/ por doc_id e deduplica conteúdo idêntico.")
+  Component(enrichment, "EnrichmentService", "service", "Estágio PAGO da ingestão: orquestra TableSummaryService e ImageDescriptionService para preencher a representação das unidades NOVAS. Seletivo (ADR-002): texto narrativo passa direto. Não decide quem é novo e não grava nada.")
+  Component(indexing, "IndexingService", "service", "Gravação nos dois armazéns em ordem FIXA (ADR-001): o original vai ao docstore ANTES de a representação ir ao índice. Falha no meio deixa original sem representação (a retomada completa), nunca hit órfão.")
   Component(tableSummary, "TableSummaryService", "service", "Resume tabelas HTML em linguagem natural buscável: entidades, métricas, período e nomes de coluna explícitos. Em lote, max_concurrency=5, só para unidades novas.")
   Component(imageDesc, "ImageDescriptionService", "service (Protocol)", "Descreve imagens via gpt-4o-mini visão: base64 em mensagem image_url, prompt qualitativo com ressalva de precisão. Respeita descrever_imagens (default true). Implementação OpenAI; modelo local previsto como segunda.")
   Component(retrieval, "RetrievalService", "service", "Busca densa top-k no vetorial, extrai os doc_ids dos hits e resolve os originais no docstore. Hit órfão é descartado com warning e a consulta segue. Devolve resultado com métrica por estágio.")
   Component(promptBuilder, "PromptBuilder", "service", "format_context com os originais ÍNTEGROS: texto cru para kind=texto, HTML completo para kind=tabela, descrição para kind=imagem. Numeração 1-based preservada; tamanho do contexto logado; truncamento por tabela nunca silencioso.")
   Component(generation, "GenerationService", "service", "Gera a resposta com instrução de recusa quando o contexto não sustenta. Fronteira da geração com o LLM.")
   Component(health, "HealthChecker", "service", "Reporta Chroma, docstore e a dessincronia entre os dois (contagens incompatíveis viram status degraded). Chroma fora do ar é 503.")
+  Component(ingestionLog, "IngestionLog", "service (Protocol)", "Porta de diagnóstico por estágio da ingestão, declarada em service/ e consumida por services e facades. NullIngestionLog é o default: log é diagnóstico, não comportamento. O ConsoleReporter é o adaptador; nada em service/ ou facade/ importa presenter.")
 
-  Component(vectorRepo, "VectorRepository", "repository", "Indexa e busca as representações no Chroma via HttpClient, com doc_id, kind, page e source no metadado. Cliente com escopo de processo, criado uma vez na composição.")
-  Component(docstoreRepo, "DocstoreRepository", "repository", "Guarda e resolve originais por doc_id num LocalFileStore em data/docstore/, atrás da interface BaseStore. Nomes de arquivo derivam do doc_id, nunca de conteúdo do PDF.")
+  Component(vectorRepo, "VectorRepository", "repository (Protocol)", "Indexa e busca as representações no Chroma via HttpClient, com doc_id, kind, page e source no metadado. Expõe known(ids), usado na reconciliação de retomada da ingestão (ADR-007). Cliente com escopo de processo, criado uma vez na composição.")
+  Component(docstoreRepo, "DocstoreRepository", "repository (Protocol)", "Guarda e resolve originais por doc_id num LocalFileStore em data/docstore/, atrás da interface BaseStore. known(ids) decide quem é novo na ingestão. Nomes de arquivo derivam do doc_id, nunca de conteúdo do PDF.")
+  Component(corpusReader, "PdfCorpusReader", "repository (Protocol CorpusReader)", "Seleção dos PDFs de entrada: glob pdfs/*.pdf NÃO recursivo, pdfs/fora-do-corpus/ fica de fora de propósito. files() lista sem custo; require_files() falha com corpus vazio ANTES de qualquer trabalho.")
+  Component(unstrPartitioner, "UnstructuredPartitioner", "repository (Protocol Partitioner)", "Roda o hi_res com infer_table_structure e extração de imagens para data/figures/ (modelos locais em CPU: YOLOX, Table Transformer, Tesseract). O que atravessa esta fronteira é Element do unstructured, de propósito: a tradução para domínio acontece uma vez, no ElementRoutingService.")
+  Component(partitionCache, "FilePartitionCache", "repository (Protocol PartitionCache)", "Persiste e restaura os Elements da partição bruta em data/partition/, por hash do CONTEÚDO do PDF (ADR-005). Cache corrompido é descartado, anunciado e refeito.")
 
-  Component(console, "ConsoleReporter", "presenter", "Único componente que escreve no terminal. Logs estruturados por estágio: contagens por categoria e página, acerto de cache, doc_ids pulados, hits órfãos descartados, truncamento de tabela.")
+  Component(console, "ConsoleReporter", "presenter", "Único componente que escreve no terminal. Adaptador da porta IngestionLog. Logs estruturados por estágio: contagens por categoria e página, acerto de cache, doc_ids pulados, hits órfãos descartados, truncamento de tabela.")
   Component(json, "JsonPresenter", "presenter", "Serializa no contrato 1.3.0. Omite campo opcional ausente, nunca emite null; content_html só com kind=tabela; HTML nunca dentro de excerpt.")
 
-  Component(dominio, "domain/models.py", "domínio", "DocumentElement, IndexedRepresentation, StoredOriginal, Answer, IngestionReport (com elements). doc_id determinístico por hash de conteúdo + origem + tipo. Folha: não importa LangChain nem vocabulário do Chroma.")
+  Component(dominio, "domain/ (models.py, identity.py)", "domínio", "DocumentUnit, ElementCounts, IndexMatch, SearchHit, RetrievalResult, Answer, IngestionReport (com elements), ResetReport; compute_doc_id determinístico por hash de conteúdo + origem + tipo. Folha: não importa LangChain nem vocabulário do Chroma.")
   Component(config, "config.py + exceptions.py", "base", "Faixas de k (1 a 20), default de descrever_imagens, strategy do unstructured (fast como contingência via .env), propriedades do Chroma e a hierarquia RagException.")
 }
 
 ContainerDb_Ext(chroma, "Chroma", "Container Docker, porta 8002", "Representações com doc_id, kind, page e source no metadado")
+ContainerDb(corpusDb, "pdfs/", "Sistema de arquivos", "Corpus de entrada; pdfs/fora-do-corpus/ jamais alcançado pelo glob")
 ContainerDb(docstoreDb, "data/docstore/", "LocalFileStore", "Originais por doc_id, fonte de verdade")
 ContainerDb(particaoDb, "data/partition/", "Sistema de arquivos", "Cache da partição bruta")
 ContainerDb(figurasDb, "data/figures/", "Sistema de arquivos", "Imagens extraídas")
@@ -356,11 +376,22 @@ Rel(api, queryFacade, "monta na rota e chama")
 Rel(api, json, "serializa")
 Rel(api, health, "confere antes de servir")
 
-Rel(ingestionFacade, partition, "particiona e roteia, com cache")
-Rel(ingestionFacade, tableSummary, "resume as tabelas NOVAS")
-Rel(ingestionFacade, imageDesc, "descreve as imagens novas, se descrever_imagens")
-Rel(ingestionFacade, docstoreRepo, "grava o original PRIMEIRO")
-Rel(ingestionFacade, vectorRepo, "indexa a representação DEPOIS")
+Rel(ingestionFacade, corpusReader, "require_files() antes de qualquer custo")
+Rel(ingestionFacade, partition, "particiona, com cache")
+Rel(ingestionFacade, routing, "roteia os elementos por categoria")
+Rel(ingestionFacade, docstoreRepo, "known(ids): decide quem é novo")
+Rel(ingestionFacade, vectorRepo, "count() antes do estágio pago; known(ids) na reconciliação de retomada")
+Rel(ingestionFacade, enrichment, "enriquece as unidades NOVAS")
+Rel(ingestionFacade, indexing, "indexa na ordem fixa")
+
+Rel(enrichment, tableSummary, "resume as tabelas novas")
+Rel(enrichment, imageDesc, "descreve as imagens novas, se descrever_imagens")
+
+Rel(indexing, docstoreRepo, "grava o original PRIMEIRO")
+Rel(indexing, vectorRepo, "indexa a representação DEPOIS")
+
+Rel(resetFacade, vectorRepo, "zera o índice PRIMEIRO")
+Rel(resetFacade, docstoreRepo, "zera o docstore DEPOIS")
 
 Rel(queryFacade, retrieval, "retrieve(pergunta, k)")
 Rel(queryFacade, promptBuilder, "format_context(originais)")
@@ -370,8 +401,12 @@ Rel(retrieval, vectorRepo, "busca densa top-k, cronometrada em search_s")
 Rel(retrieval, docstoreRepo, "resolve originais por doc_id")
 Rel(retrieval, dominio, "devolve resultado com métrica")
 
-Rel(partition, particaoDb, "lê e grava o cache", "filesystem")
-Rel(partition, figurasDb, "grava as imagens extraídas", "filesystem")
+Rel(partition, unstrPartitioner, "Partitioner.partition(), só quando não há cache")
+Rel(partition, partitionCache, "load e save, por hash do conteúdo")
+Rel(partitionCache, particaoDb, "persiste e restaura os Elements", "filesystem")
+Rel(unstrPartitioner, figurasDb, "extrai as imagens", "filesystem")
+Rel(corpusReader, corpusDb, "glob pdfs/*.pdf, NÃO recursivo", "filesystem")
+Rel(routing, figurasDb, "copia a figura canônica, nomeada pelo doc_id", "filesystem")
 Rel(imageDesc, figurasDb, "lê a imagem para o base64", "filesystem")
 
 Rel(health, vectorRepo, "conta o índice")
@@ -383,6 +418,9 @@ Rel(docstoreRepo, docstoreDb, "grava e resolve", "LocalFileStore")
 Rel(tableSummary, openai, "resumo, com retries e backoff", "HTTPS")
 Rel(imageDesc, openai, "descrição em visão", "HTTPS")
 Rel(generation, openai, "geração com recusa", "HTTPS")
+
+Rel(console, ingestionLog, "implementa a porta, sem import: Protocol estrutural")
+Rel(ingestionFacade, ingestionLog, "diagnóstico por estágio, pela porta")
 
 Rel(console, dominio, "lê")
 Rel(json, dominio, "lê")
@@ -436,7 +474,7 @@ note as SAUDE
   índice vazio, antes de qualquer chamada paga.
 end note
 
-ADR002 .. partition
+ADR002 .. enrichment
 ADR003 .. dominio
 ADR006 .. imageDesc
 PROMPT .. promptBuilder
@@ -448,8 +486,9 @@ SHOW_LEGEND()
 
 ## Rastreabilidade aos ADRs
 
-O projeto tem **seis ADRs** (`docs/adrs/generated/RAG/`), e os três diagramas os
-referenciam por número nas notas.
+O projeto tem **oito ADRs** (`docs/adrs/generated/RAG/`) — os seis da primeira geração
+mais os ADR-007 e ADR-008, surgidos com a implementação — e os três diagramas os
+referenciam por número nas notas e descrições.
 
 | ADR | Onde aparece |
 | --- | --- |
@@ -459,6 +498,8 @@ referenciam por número nas notas.
 | 004, contrato compartilhado 1.3.0 aditivo | descrição do `serve.py` e do frontend no C2, `rag/api/` e `JsonPresenter` no C3 |
 | 005, cache da partição bruta | nota do C2, `PartitionService` no C3 |
 | 006, descritor de imagens atrás de `Protocol` | nota do C3, `ImageDescriptionService` |
+| 007, idempotência reconciliada pelos dois armazéns | descrição da `IngestionFacade` e `known(ids)` do `VectorRepository` no C3 |
+| 008, `content_html` só com HTML estrutural | invariante servida pelo par `RetrievalService` e `JsonPresenter` no C3 |
 
 As três decisões da sessão de PRD (frontend na mesma entrega, pergunta única sem
 histórico, evidência de imagem qualitativa) aparecem, respectivamente, no frontend do C1
@@ -479,6 +520,14 @@ e do C2, na descrição do `ask.py` e da `QueryFacade`, e na nota do ADR-006.
 - [x] Idioma do FDD, português brasileiro, com acentuação correta
 - [x] Termos técnicos e nomes de componentes mantidos em inglês
 - [x] Portas conferidas: API em 8080, Chroma em 8002, nenhuma outra inventada
+- [x] **Conferência contra o código real de `rag/` feita em 2026-08-02** (segunda
+      geração, como o precedente do rag-03): nomes de classe, camadas e relações do C3
+      batem com `rag/facade/`, `rag/service/`, `rag/repository/` e `rag/presenter/`
+- [x] Divergências código × primeira geração incorporadas: `ElementRoutingService`
+      separado do `PartitionService`, `EnrichmentService`, `IndexingService`,
+      `PdfCorpusReader`, `ResetFacade`, porta `IngestionLog`, par
+      `UnstructuredPartitioner`/`FilePartitionCache` e `known(ids)` no
+      `VectorRepository`
 
 ### Consistência entre níveis
 
@@ -493,5 +542,6 @@ e do C2, na descrição do `ask.py` e da `QueryFacade`, e na nota do ADR-006.
   afirmada com o mesmo texto no C2 e no C3.
 - O contrato 1.3.0 aditivo aparece na relação frontend-sistema no C1, na descrição do
   `serve.py` e do frontend no C2 e no par `rag/api/` e `JsonPresenter` no C3.
-- Quando houver código, esta geração deve ser conferida contra `rag/`, como o
-  precedente do rag-03 fez na segunda geração dos diagramas dele.
+- Conferência contra `rag/` **feita em 2026-08-02**, como o precedente do rag-03 fez na
+  segunda geração dos diagramas dele. O C3 foi ajustado para o código real; C1 e C2
+  permanecem válidos como estavam (a decomposição interna do pacote é detalhe do C3).
