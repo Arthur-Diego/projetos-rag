@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: Contrato RAG compartilhado
-  version: 1.2.0
+  version: 1.3.0
   description: |
     Contrato HTTP comum aos projetos da trilha. Um frontend que fale este contrato
     conversa com qualquer projeto sem conhecer nenhum deles.
@@ -15,6 +15,43 @@ info:
     Regra de evolução: **acrescente campos opcionais, nunca altere os obrigatórios.**
     Um projeto que precise mudar `POST /ask` está pedindo uma versão nova do contrato,
     não uma customização.
+
+    ## 1.3.0 — fontes multimodais
+
+    Campos opcionais novos, **nenhum obrigatório alterado e nenhum relaxamento**.
+    Origem: `rag-04-multimodal-docs/docs/adrs/generated/RAG/ADR-004`.
+
+    O que motiva: um projeto passou a indexar tabelas e imagens de PDFs, não só
+    trechos de texto. Uma resposta pode se apoiar numa tabela, e 1.2.0 não tinha
+    como dizer isso ao consumidor: todo hit era, implicitamente, um trecho de texto.
+
+    - **`hits[].kind`**, opcional, `texto | tabela | imagem`. Que tipo de fonte
+      sustenta a resposta. Ausente nos projetos que só indexam texto, e o consumidor
+      trata a ausência como o comportamento de sempre.
+    - **`hits[].content_html`**, opcional. O HTML da tabela ORIGINAL, para o cliente
+      renderizar linhas e colunas de verdade. Presente **apenas** quando
+      `kind=tabela`.
+    - **`IngestionReport.elements`**, opcional. Contagem de `textos`, `tabelas` e
+      `imagens` extraídos, tornando o resultado da extração visível ao cliente e não
+      só ao log do servidor.
+    - **`GET /health` ganha o campo `docstore_originals`.** Um projeto pode manter um
+      segundo armazém com os originais, ligado ao índice por identificador. Índice e
+      docstore dessincronizados são `degraded`, e continua sendo 200.
+    - **`GET /health` ganha `degraded_reason`**, opcional: a evidência que acompanha
+      todo `degraded` — qual lado está sobrando ou inacessível, e a receita.
+    - **`timings.docstore_s`**, opcional: a resolução dos originais no segundo
+      armazém, decompondo `search_s` junto com `dense_s` (mesmo precedente da
+      decomposição declarada na 1.2.0).
+
+    **`excerpt` não muda de tipo nem de sentido, e HTML nunca entra nele.** O que
+    muda é o que ele carrega conforme o `kind`: com `kind=tabela`, o resumo em
+    linguagem natural (foi ele que casou com a busca); com `kind=imagem`, a descrição
+    da imagem; com `kind=texto` ou `kind` ausente, o próprio trecho, como sempre.
+    Despejar HTML em `excerpt` quebraria a exibição de todo cliente existente — o
+    oposto de aditivo, e o motivo de `content_html` ser campo separado.
+
+    Fora do escopo desta versão, declarado: **servir o arquivo da imagem.** Não há
+    rota de mídia. A imagem participa como descrição textual em `excerpt`.
 
     ## 1.2.0 — busca híbrida e custo por estágio
 
@@ -111,6 +148,32 @@ paths:
                       encontra nada, **sem erro nenhum**: o índice responde, está
                       populado, e metade de um funil híbrido está morta. Ausente em
                       projetos que não fazem busca léxica.
+                  docstore_originals:
+                    type: integer
+                    # Igual ao example de `indexed_chunks` DE PROPÓSITO: os
+                    # exemplos por campo compõem uma resposta, e como a própria
+                    # descrição abaixo manda comparar os dois, exemplos
+                    # divergentes descreveriam um sistema degradado com
+                    # `status: ok` implícito.
+                    example: 617
+                    description: |
+                      Opcional, desde 1.3.0. Quantos originais o segundo armazém
+                      guarda, em projetos que separam o que é indexado do que é
+                      devolvido ao modelo (indexa-se um resumo, devolve-se o
+                      original, ligados por identificador).
+
+                      **É informativo e vale contra `indexed_chunks`:** os dois
+                      divergirem denuncia identificador órfão — trecho no índice cujo
+                      original sumiu, que vira resposta vazia sem erro nenhum. Nesse
+                      caso o `status` é `degraded`, e **continua sendo 200**. Ausente
+                      em projetos com um armazém só.
+                  degraded_reason:
+                    type: string
+                    description: |
+                      Opcional, desde 1.3.0. A evidência quando `status=degraded`:
+                      qual armazém está sobrando (ou inacessível) e a receita de
+                      conserto. `degraded` sem evidência é adjetivo, não diagnóstico —
+                      presente sempre que o status é `degraded`, ausente no `ok`.
         "503":
           description: Dependência externa fora do ar
           content:
@@ -245,6 +308,15 @@ paths:
       description: |
         Operação cara e destrutiva: apaga o índice anterior. O frontend deve confirmar
         antes de chamar. Só ofereça se `ingest` estiver em `features`.
+
+        **Nota aditiva, desde 1.3.0.** A destrutividade acima continua valendo e é o
+        padrão. Um projeto cuja ingestão seja **idempotente** RECONCILIA em vez de
+        recriar: reprocessa o que mudou, preserva o que não mudou e não apaga o
+        índice ao reingerir. O contrato não distingue os dois no esquema — a resposta
+        é o mesmo `IngestionReport` —, então quem oferece confirmação destrutiva na
+        interface deve saber com que backend está falando. Motivo: o custo de
+        reingerir é alto quando a extração é pesada (partição de PDF em `hi_res` leva
+        minutos), e recriar do zero repagaria o que não mudou.
       requestBody:
         required: false
         content:
@@ -264,10 +336,27 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/IngestionReport" }
         "422":
-          description: Parâmetro inválido, por exemplo overlap maior que size
+          description: |
+            Parâmetro inválido em `options`. Duas famílias, ambas 422: valor fora da
+            faixa (overlap maior que size) e **valor do tipo errado** (um parâmetro
+            declarado boolean em `/capabilities` recebendo string ou número). Tipo
+            errado é 422, não 500: o pedido é que está malformado.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Problem" }
+              examples:
+                faixa:
+                  summary: Valor fora da faixa
+                  value:
+                    title: Parâmetro inválido
+                    detail: "chunk_overlap (1200) não pode ser maior que chunk_size (1000)."
+                    code: INVALID_PARAMETER
+                tipo:
+                  summary: Tipo errado
+                  value:
+                    title: Parâmetro inválido
+                    detail: "descrever_imagens deve ser booleano (true ou false); recebido: \"sim\"."
+                    code: INVALID_PARAMETER
         "500":
           description: Configuração ausente ou inconsistente no backend
           content:
@@ -340,7 +429,40 @@ components:
         provenance:
           allOf: [{ $ref: "#/components/schemas/Provenance" }]
           description: Opcional, desde 1.2.0.
-        excerpt: { type: string, description: Trecho do texto, para exibição }
+        kind:
+          type: string
+          enum: [texto, tabela, imagem]
+          example: tabela
+          description: |
+            Opcional, desde 1.3.0. Que tipo de fonte é este trecho. Ausente em
+            projetos que só indexam texto: o consumidor trata a ausência como
+            `texto` para exibição, sem exibir selo nenhum.
+
+            **O `kind` determina o que `excerpt` carrega**, sem mudar o tipo dele:
+            `tabela` → o resumo em linguagem natural da tabela (foi ele que casou com
+            a busca; é curto e exibível); `imagem` → a descrição da imagem; `texto` →
+            o próprio trecho. HTML **nunca** entra em `excerpt`, em nenhum caso; ele
+            mora em `content_html`.
+        content_html:
+          type: string
+          example: "<table><tr><th>Indicador</th><th>3T24</th></tr><tr><td>Receita de vendas</td><td>129,6</td></tr></table>"
+          description: |
+            Opcional, desde 1.3.0. O HTML da tabela ORIGINAL, para o cliente
+            renderizar linhas e colunas de verdade em vez do resumo.
+
+            **Presente apenas quando `kind=tabela`.** Ausente com `kind=texto`,
+            com `kind=imagem` e quando `kind` não é emitido. É HTML de documento,
+            de origem externa: o cliente sanitiza antes de pôr no DOM.
+
+            Quem recebe `kind=tabela` sem `content_html` exibe o `excerpt` como
+            texto — a inconsistência é do emissor, e degradar é melhor que esconder
+            o hit.
+        excerpt:
+          type: string
+          description: |
+            Trecho para exibição. Sempre texto, nunca HTML. Desde 1.3.0 o conteúdo
+            depende de `kind`: o próprio trecho (`texto` ou `kind` ausente), o resumo
+            da tabela (`tabela`) ou a descrição da imagem (`imagem`).
 
     Provenance:
       type: object
@@ -487,6 +609,15 @@ components:
               description: |
                 Opcional, desde 1.2.0. Busca semântica. Inclui a chamada de embedding da
                 pergunta, que costuma dominar o custo do estágio.
+            docstore_s:
+              type: number
+              format: float
+              description: |
+                Opcional, desde 1.3.0. Resolução dos originais no segundo armazém, em
+                projetos multi-vector: os identificadores dos hits viram o conteúdo
+                íntegro que vai ao modelo. Decompõe `search_s` junto com `dense_s` —
+                quem somar os três conta a recuperação duas vezes. Ausente em
+                projetos com um armazém só.
             keyword_s:
               type: number
               format: float
@@ -526,6 +657,23 @@ components:
         chunk_size: { type: integer }
         chunk_overlap: { type: integer }
         seconds: { type: number, format: float }
+        elements:
+          type: object
+          description: |
+            Opcional, desde 1.3.0. Quantos elementos de cada tipo a extração
+            encontrou. Ausente em projetos que não separam a fonte por tipo.
+
+            **Quando o objeto está presente, as três contagens estão presentes, e
+            categoria que não ocorreu vale ZERO explícito, nunca ausente.** Ausência
+            significaria "não sei", e "não sei" e "procurei e não achei" são
+            afirmações diferentes para quem lê o relatório de uma extração
+            multimodal: zero tabelas num relatório financeiro é o sinal de que o
+            estágio de detecção não rodou.
+          required: [textos, tabelas, imagens]
+          properties:
+            textos: { type: integer, example: 41 }
+            tabelas: { type: integer, example: 12 }
+            imagens: { type: integer, example: 5 }
 
     Problem:
       type: object

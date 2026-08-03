@@ -1,0 +1,42 @@
+# Chroma como servico, para as REPRESENTACOES (ADR-001). Suba antes de
+# ingest.py, ask.py e serve.py:
+#   docker compose up -d chroma
+#
+# Este e o armazem DERIVADO do projeto. Os ORIGINAIS vivem no docstore
+# (LocalFileStore em data/docstore/), que e a fonte de verdade e nao e um
+# servico: perder este container custa minutos de re-embedding; perder o
+# docstore custa a ingestao inteira.
+#
+# PORTA 8002, e nao 8000 nem 8001: aquelas pertencem aos Chroma dos projetos 1 e
+# 2, e a 6333/9200 ao Qdrant e ao Elasticsearch dos projetos 2 e 3. UM SERVICO
+# POR VEZ: derrube os containers dos projetos anteriores antes de trabalhar
+# neste.
+#   (cd ../rag-03-hybrid-rerank && docker compose down)
+#
+# Valores conferidos contra a imagem chromadb/chroma:1.5.9 na trilha:
+#   - persist_path do /config.yaml interno e /data
+#   - endpoint de saude e /api/v2/heartbeat (a API v1 responde 410 Gone)
+#   - Swagger em http://localhost:8002/docs
+
+services:
+  chroma:
+    image: chromadb/chroma:1.5.9
+    container_name: rag04-chroma
+    ports:
+      - "8002:8000"
+    volumes:
+      - chroma_data:/data
+    healthcheck:
+      # A imagem 1.5.9 nao tem curl, wget, python nem nc: so bash.
+      # Isto checa que a porta aceita conexao, nao que a API responde.
+      # Para verificar a API de fato, use, a partir do host:
+      #   curl localhost:8002/api/v2/heartbeat
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  chroma_data:

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import Procedencia, { Tempos } from "./Procedencia";
+import { Tempos } from "./Procedencia";
+import Trecho from "./Trecho";
 
 /**
  * Interface de conversa, ativada pela feature `history` do contrato.
@@ -161,14 +162,7 @@ export function Turno({ pergunta, dados, indice }) {
         <ol className="trechos">
           {(dados.hits ?? []).map((h, i) => (
             <li key={i}>
-              <div className="trecho-cabecalho">
-                <span className="fonte">
-                  {h.source}
-                  {h.page != null && ` · p.${h.page}`}
-                </span>
-                <Procedencia hit={h} />
-              </div>
-              <p className="trecho-texto">{h.excerpt}</p>
+              <Trecho hit={h} />
             </li>
           ))}
         </ol>

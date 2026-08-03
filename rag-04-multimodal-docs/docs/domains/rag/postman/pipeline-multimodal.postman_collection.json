@@ -1,0 +1,955 @@
+{
+  "info": {
+    "_postman_id": "7b2f4a90-3c1d-4e57-9a62-multimodal04",
+    "name": "Pipeline multimodal de ponta a ponta",
+    "description": "Colecao derivada do FDD `docs/domains/rag/features/pipeline-multimodal-fdd.md` (secao 5, contratos publicos, linhas 160 a 266; secao 4, ordem dos fluxos, linhas 94 a 156; secao 6, matriz de erros e invariantes, linhas 269 a 299; secao 9, criterios de aceite) do projeto `rag-04-multimodal-docs`.\n\nContrato publicado cruzado: `../../../../../docs/contracts/rag-api.yaml`, OpenAPI 3.1.0, **versao 1.2.0**. O FDD (linhas 162 e 163) especifica **1.3.0**, evolucao aditiva decidida no ADR-004: `SearchHit.kind`, `SearchHit.content_html`, `elements` no `IngestionReport` e nota de semantica idempotente no `/ingest`. **Todas as rotas, verbos e status do FDD ja existem na 1.2.0** — o delta e de campos opcionais, e a evolucao do yaml e a etapa 2 do Build Order (secao 11, linha 449), a ser feita ANTES do consumidor. As diferencas estao em `divergencias.md`, na mesma pasta; nenhuma e ALTA.\n\nNenhuma rota e autenticada: o `rag-api.yaml` nao declara `securitySchemes` e a secao 5 do FDD nao cita header de autorizacao. Por isso a colecao nao tem bloco `auth`; `accessToken` existe no environment so como espaco reservado.\n\nAlem do status, os testes afirmam as invariantes HTTP-testaveis da secao 6 (linhas 293 a 299):\n1. `content_html` presente **se e somente se** `kind=tabela` (linha 297);\n2. HTML nunca dentro de `excerpt` (linha 297);\n3. campo opcional ausente e **omitido do JSON, nunca null** (linhas 180, 181 e 298);\n4. `provenance` ausente, porque so ha caminho denso (linhas 180 e 181);\n5. reingestao idempotente: contagens do relatorio inalteradas entre duas execucoes sobre o mesmo corpus (secao 2, linhas 48 a 50; secao 9, linhas 365 e 366) — unico encadeamento de valores da colecao, via variaveis preenchidas no teste da primeira ingestao.\n\nO projeto ainda nao tem codigo: nao ha servico escutando e a colecao **nao foi executada**. Ela e o artefato a rodar na validacao (Passo 7), depois da etapa 9 do Build Order (`GET /health`, `GET /capabilities`, `rag/api/`); a checagem contra o contrato 1.3.0 depende da etapa 2.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "perguntaTabela",
+      "value": "Qual foi a receita de vendas da Petrobras no 3T24, em milhoes de reais?",
+      "type": "string",
+      "description": "Pergunta cuja resposta vive numa celula de tabela (criterio 1 da secao 9, linhas 359 e 360). NAO e a forma nua do FDD (linha 186), e o motivo esta no README: \"Qual foi a receita no 3T24?\" nao recupera a tabela (7o lugar com k=10, atras de dez trechos de texto) e a resposta e recusa. E a EC-3 da US-006 e o risco 3 do FDD, drift resumo x conteudo, medido na etapa 11."
+    },
+    {
+      "key": "perguntaForaDoCorpus",
+      "value": "Qual foi a taxa Selic meta definida pelo Copom em dezembro de 2019?",
+      "type": "string",
+      "description": "PREENCHER ANTES DE RODAR o controle negativo: pergunta cuja resposta so existe no PDF do BCB, que nunca e indexado (`pdfs/fora-do-corpus/`, FDD secao 4, linhas 98 e 99; secao 2, linhas 54 e 55). O FDD nao declara o texto exato da pergunta, por isso a variavel nasce vazia."
+    },
+    {
+      "key": "k",
+      "value": "8",
+      "type": "string",
+      "description": "Valor de `k` usado pela colecao. O DEFAULT do contrato continua sendo 4 (FDD secao 1, linhas 36 a 38; secao 5, linha 258: integer, default 4, faixa 1 a 20, applies_to ask), e `/capabilities` publica 4 — a colecao usa 8 porque com 4 a tabela da pagina 5 nao entra nos recuperados neste corpus. Ver README."
+    },
+    {
+      "key": "kForaDeFaixa",
+      "value": "21",
+      "type": "string",
+      "description": "Um acima do teto de 20, para provocar o 422 da secao 5 (linha 174) e da secao 6 (linha 275)."
+    },
+    {
+      "key": "chunksPrimeiraIngestao",
+      "value": "",
+      "type": "string",
+      "description": "Preenchida pelo teste da primeira ingestao; consumida pela reingestao idempotente. Nao preencher a mao."
+    },
+    {
+      "key": "elementsTextos",
+      "value": "",
+      "type": "string",
+      "description": "Preenchida pelo teste da primeira ingestao; consumida pela reingestao idempotente. Nao preencher a mao."
+    },
+    {
+      "key": "elementsTabelas",
+      "value": "",
+      "type": "string",
+      "description": "Preenchida pelo teste da primeira ingestao; consumida pela reingestao idempotente. Nao preencher a mao."
+    },
+    {
+      "key": "elementsImagens",
+      "value": "",
+      "type": "string",
+      "description": "Preenchida pelo teste da primeira ingestao; consumida pela reingestao idempotente. Nao preencher a mao."
+    }
+  ],
+  "item": [
+    {
+      "name": "meta",
+      "description": "Contratos 3 (`GET /health`, FDD linhas 240 a 249) e 4 (`GET /capabilities`, linhas 251 a 258). Sem efeito colateral e sem chamada paga; rode primeiro — e o primeiro sinal de que a camada HTTP subiu (Build Order, etapa 9).",
+      "item": [
+        {
+          "name": "GET /health — ok com armazens consistentes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "FDD secao 5, contrato 3 (linhas 240 a 249): 200 com `status=ok|degraded`; `degraded` quando ha dessincronia entre indice e docstore ou docstore inacessivel; 503 quando o Chroma esta fora do ar. Os campos opcionais do contrato (`collection`, `indexed_chunks`, `embedding_model`, `embedding_dimensions`) vem preenchidos, e a contagem do docstore e reportada em campo informativo do projeto.\n\n**Ambiguidade registrada como MEDIA em `divergencias.md`:** o FDD nao nomeia o campo que carrega a contagem do docstore (linha 249), e o `rag-api.yaml` 1.2.0 nao o declara. O teste aceita qualquer chave cujo nome contenha `docstore` e falha listando as chaves recebidas — e um lembrete, nao uma especificacao.\n\nEste request cobre o caminho feliz (`ok`). O `degraded` por dessincronia e o 503 com Chroma fora do ar vivem em `erros/`, porque exigem estado provocado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 245)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('campos obrigatorios do contrato: status e project', function () {",
+                  "    pm.expect(json).to.have.property('status');",
+                  "    pm.expect(json).to.have.property('project');",
+                  "});",
+                  "",
+                  "pm.test('status pertence ao enum [ok, degraded]', function () {",
+                  "    pm.expect(json.status).to.be.oneOf(['ok', 'degraded']);",
+                  "});",
+                  "",
+                  "pm.test('armazens consistentes reportam ok (secao 9, linhas 370 e 371)', function () {",
+                  "    pm.expect(json.status, 'degraded significa dessincronia indice/docstore ou docstore inacessivel (FDD linhas 245 a 248); o caso provocado vive em erros/').to.eql('ok');",
+                  "});",
+                  "",
+                  "pm.test('campos opcionais do contrato preenchidos (FDD linhas 247 a 249)', function () {",
+                  "    pm.expect(json).to.have.property('collection');",
+                  "    pm.expect(json).to.have.property('indexed_chunks');",
+                  "    pm.expect(json).to.have.property('embedding_model');",
+                  "    pm.expect(json).to.have.property('embedding_dimensions');",
+                  "});",
+                  "",
+                  "pm.test('contagem do docstore reportada em campo informativo (FDD linha 249)', function () {",
+                  "    const chaves = Object.keys(json);",
+                  "    const achou = chaves.some(function (c) { return /docstore/i.test(c); });",
+                  "    pm.expect(achou, 'nenhuma chave de docstore entre: ' + chaves.join(', ') + ' — o FDD nao nomeia o campo; ver divergencias.md').to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /capabilities — features e os dois parametros",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/capabilities",
+              "host": ["{{baseUrl}}"],
+              "path": ["capabilities"]
+            },
+            "description": "FDD secao 5, contrato 4 (linhas 251 a 258): `features = [ask, ingest, sources]`, **sem** `history` (pergunta unica, adr-002 da sessao) e **sem** `stream` (exclusao da secao 3, linha 87). `parameters` publica exatamente os dois botoes do projeto: `k` (integer, default 4, 1 a 20, applies_to ask) e `descrever_imagens` (boolean, default true, applies_to ingest) — decisao da entrevista registrada na secao 1 (linhas 36 a 39)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (rag-api.yaml, /capabilities)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('campos obrigatorios do contrato: project, features, parameters', function () {",
+                  "    pm.expect(json).to.have.property('project');",
+                  "    pm.expect(json).to.have.property('features');",
+                  "    pm.expect(json).to.have.property('parameters');",
+                  "});",
+                  "",
+                  "pm.test('features contem ask, ingest e sources (FDD linha 256)', function () {",
+                  "    pm.expect(json.features).to.include.members(['ask', 'ingest', 'sources']);",
+                  "});",
+                  "",
+                  "pm.test('features NAO contem history nem stream (FDD linha 256; secao 3, linhas 85 a 87)', function () {",
+                  "    pm.expect(json.features).to.not.include('history');",
+                  "    pm.expect(json.features).to.not.include('stream');",
+                  "});",
+                  "",
+                  "pm.test('parametro k: integer, default 4, faixa 1 a 20, applies_to ask (FDD linhas 257 e 258)', function () {",
+                  "    const k = json.parameters.k;",
+                  "    pm.expect(k, 'parameters.k ausente').to.be.an('object');",
+                  "    pm.expect(k.type).to.eql('integer');",
+                  "    pm.expect(k.default).to.eql(4);",
+                  "    pm.expect(k.minimum).to.eql(1);",
+                  "    pm.expect(k.maximum).to.eql(20);",
+                  "    if (k.applies_to !== undefined) {",
+                  "        pm.expect(k.applies_to).to.include('ask');",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('parametro descrever_imagens: boolean, default true, applies_to ingest (FDD linhas 257 e 258)', function () {",
+                  "    const p = json.parameters.descrever_imagens;",
+                  "    pm.expect(p, 'parameters.descrever_imagens ausente').to.be.an('object');",
+                  "    pm.expect(p.type).to.eql('boolean');",
+                  "    pm.expect(p.default).to.eql(true);",
+                  "    pm.expect(p.applies_to, 'applies_to deve restringir a ingest').to.include('ingest');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ingest",
+      "description": "Contrato 2 (`POST /ingest`, FDD linhas 209 a 238). Sincrono e caro: a primeira execucao roda a particao `hi_res` em CPU e leva **minutos**; o timeout documentado e de 15 minutos (linhas 219 a 222) — no newman, use `--timeout-request 900000`. Execucoes com cache de particao concluem em segundos. **Nao e destrutivo**: a ingestao e idempotente-incremental (secao 1, linhas 38 e 39; secao 4, linhas 107 a 109), diferente do que a descricao do contrato 1.2.0 ainda diz — ver divergencias.md.",
+      "item": [
+        {
+          "name": "POST /ingest — primeira ingestao, com descricao de imagens",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"descrever_imagens\": true\n  }\n}"
+            },
+            "description": "Exemplo de requisicao da secao 5 (linhas 224 a 227). Fluxo da secao 4 (linhas 96 a 118): particao `hi_res` (ou cache), roteamento por categoria, enriquecimento pago so das unidades novas, indexacao dupla (original no docstore ANTES da representacao no Chroma). Resposta: `IngestionReport` com `pages`, `chunks`, `seconds` e `elements` (`textos`, `tabelas`, `imagens`) — campo novo da 1.3.0 (linhas 216 a 218).\n\nO teste grava as contagens em variaveis de colecao para a reingestao idempotente comparar.\n\n`tabelas: 0` no relatorio **passa** no teste de esquema: e o sinal explicito do risco 1 (linhas 143 e 144; secao 10, linhas 387 a 395), nao uma falha silenciosa — o teste dedicado apenas denuncia no nome."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 214)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('campos obrigatorios do IngestionReport: pages, chunks, seconds', function () {",
+                  "    pm.expect(json).to.have.property('pages');",
+                  "    pm.expect(json).to.have.property('chunks');",
+                  "    pm.expect(json).to.have.property('seconds');",
+                  "});",
+                  "",
+                  "pm.test('elements com textos, tabelas e imagens inteiros (1.3.0; FDD linhas 216 a 218 e 230 a 238)', function () {",
+                  "    pm.expect(json.elements, 'elements ausente: campo novo da 1.3.0').to.be.an('object');",
+                  "    ['textos', 'tabelas', 'imagens'].forEach(function (c) {",
+                  "        pm.expect(json.elements[c], 'elements.' + c).to.be.a('number');",
+                  "        pm.expect(json.elements[c], 'elements.' + c + ' negativo').to.be.at.least(0);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('tabelas: 0 e sinal do risco 1, nunca ausencia silenciosa (FDD linhas 143 e 144)', function () {",
+                  "    pm.expect(json.elements).to.have.property('tabelas');",
+                  "    if (json.elements.tabelas === 0) {",
+                  "        console.warn('elements.tabelas = 0: o hi_res nao detectou tabela nenhuma; rode o script de inspecao pos-particao antes de qualquer resumo pago (secao 10, risco 1)');",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('opcional ausente e omitido, nunca null (invariante, FDD linha 298)', function () {",
+                  "    Object.keys(json).forEach(function (c) {",
+                  "        pm.expect(json[c], c + ' veio null').to.not.be.null;",
+                  "    });",
+                  "});",
+                  "",
+                  "if (json.elements) {",
+                  "    pm.collectionVariables.set('chunksPrimeiraIngestao', String(json.chunks));",
+                  "    pm.collectionVariables.set('elementsTextos', String(json.elements.textos));",
+                  "    pm.collectionVariables.set('elementsTabelas', String(json.elements.tabelas));",
+                  "    pm.collectionVariables.set('elementsImagens', String(json.elements.imagens));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ingest — reingestao do corpus inalterado (idempotencia)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"descrever_imagens\": true\n  }\n}"
+            },
+            "description": "Mesma requisicao, corpus inalterado. Objetivo da secao 2 (linhas 48 a 50) e criterios da secao 9 (linhas 365 a 368): zero chamadas de enriquecimento, zero embeddings novos, contagens inalteradas; com cache de particao valido, o estagio de particao conclui em segundos. O HTTP so enxerga as contagens do relatorio — os testes comparam com as variaveis gravadas pela primeira ingestao. `novos=0, reaproveitados=N` e o acerto de cache sao evidencia de **log**, nao desta colecao (ver README).\n\nRode SEMPRE depois de `primeira ingestao`, na mesma sessao."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 214)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const salvo = {",
+                  "    chunks: pm.collectionVariables.get('chunksPrimeiraIngestao'),",
+                  "    textos: pm.collectionVariables.get('elementsTextos'),",
+                  "    tabelas: pm.collectionVariables.get('elementsTabelas'),",
+                  "    imagens: pm.collectionVariables.get('elementsImagens')",
+                  "};",
+                  "",
+                  "pm.test('primeira ingestao rodou antes, na mesma sessao', function () {",
+                  "    pm.expect(salvo.chunks, 'variavel chunksPrimeiraIngestao vazia: rode o request anterior primeiro').to.not.be.oneOf([null, undefined, '']);",
+                  "});",
+                  "",
+                  "pm.test('contagens inalteradas: reingestao nao recria nada (FDD secao 2, linhas 48 a 50; secao 9, linhas 365 e 366)', function () {",
+                  "    pm.expect(String(json.chunks), 'chunks mudou entre duas ingestoes do mesmo corpus').to.eql(salvo.chunks);",
+                  "    pm.expect(String(json.elements.textos), 'elements.textos mudou').to.eql(salvo.textos);",
+                  "    pm.expect(String(json.elements.tabelas), 'elements.tabelas mudou').to.eql(salvo.tabelas);",
+                  "    pm.expect(String(json.elements.imagens), 'elements.imagens mudou').to.eql(salvo.imagens);",
+                  "});",
+                  "",
+                  "pm.test('reingestao com cache conclui em segundos, nao minutos (FDD secao 5, linhas 221 e 222)', function () {",
+                  "    pm.expect(json.seconds, 'seconds acima de 60: cache de particao provavelmente nao foi usado (secao 9, linhas 367 e 368)').to.be.below(60);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ingest — descrever_imagens=false",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"descrever_imagens\": false\n  }\n}"
+            },
+            "description": "Fluxo alternativo da secao 4 (linhas 145 a 147): com a flag desligada, as imagens sao **extraidas e contadas**, mas nao descritas nem indexadas nesta execucao; as unidades ficam pendentes para uma ingestao futura com a flag ligada. O parametro e o segundo botao do `/capabilities` (secao 5, linhas 257 e 258).\n\nAtencao ao estado: rodada DEPOIS das ingestoes anteriores (imagens ja indexadas), esta execucao e um no-op idempotente. Para observar a pendencia de verdade, rode apos um reset (script CLI) — o relatorio ainda conta as imagens em `elements`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 214)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('relatorio com elements mesmo sem descrever (FDD linhas 145 a 147)', function () {",
+                  "    pm.expect(json.elements).to.be.an('object');",
+                  "    pm.expect(json.elements.imagens, 'imagens devem ser contadas mesmo nao descritas').to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ask",
+      "description": "Contrato 1 (`POST /ask`, FDD linhas 166 a 207). Fluxo da secao 4 (linhas 120 a 132): validacao na borda, `require_index` com 409 antes de custo, busca densa sobre as representacoes, resolucao dos originais no docstore por `doc_id`, contexto com o original integro (HTML completo para tabela), geracao com recusa. Exige ingestao previa: rode a pasta `ingest/` antes.",
+      "item": [
+        {
+          "name": "POST /ask — pergunta de celula de tabela",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTabela}}\",\n  \"options\": {\n    \"k\": {{k}}\n  }\n}"
+            },
+            "description": "Exemplos de requisicao e resposta da secao 5 (linhas 183 a 207); criterios 1 e 2 da secao 9 (linhas 359 a 362). Os testes afirmam a semantica dos campos novos da 1.3.0 (linhas 177 a 181) e as invariantes da secao 6 (linhas 297 e 298):\n- `kind` em cada hit, no enum `texto|tabela|imagem`;\n- `content_html` presente **se e somente se** `kind=tabela`;\n- HTML nunca dentro de `excerpt`;\n- opcional ausente omitido do JSON, nunca `null`;\n- `provenance` ausente (so caminho denso);\n- no maximo `k` hits; `timings` com `search_s` e `generation_s`.\n\nQue o HTML integro (nao o resumo) entrou no **prompt** e evidencia de log do servidor (secao 2, linhas 45 a 47), fora do alcance desta colecao — ver README."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200 (FDD secao 5, linha 172)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const k = parseInt(pm.collectionVariables.get('k'), 10);",
+                  "",
+                  "pm.test('campos obrigatorios do Answer: text, refused, hits, timings', function () {",
+                  "    pm.expect(json).to.have.property('text');",
+                  "    pm.expect(json).to.have.property('refused');",
+                  "    pm.expect(json).to.have.property('hits');",
+                  "    pm.expect(json).to.have.property('timings');",
+                  "});",
+                  "",
+                  "pm.test('pergunta do corpus nao e recusada (secao 9, linhas 359 e 360)', function () {",
+                  "    pm.expect(json.refused).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('no maximo k hits', function () {",
+                  "    pm.expect(json.hits.length).to.be.at.most(k);",
+                  "});",
+                  "",
+                  "pm.test('kind presente em cada hit e no enum texto|tabela|imagem (FDD linha 177)', function () {",
+                  "    json.hits.forEach(function (hit, i) {",
+                  "        pm.expect(hit, 'hit[' + i + '] sem source').to.have.property('source');",
+                  "        pm.expect(hit.kind, 'hit[' + i + '].kind').to.be.oneOf(['texto', 'tabela', 'imagem']);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('content_html presente se e somente se kind=tabela (FDD linhas 178 a 180; invariante linha 297)', function () {",
+                  "    json.hits.forEach(function (hit, i) {",
+                  "        if (hit.kind === 'tabela') {",
+                  "            pm.expect(hit.content_html, 'hit[' + i + '] tabela sem content_html').to.be.a('string').and.to.not.be.empty;",
+                  "        } else {",
+                  "            pm.expect(hit, 'hit[' + i + '] (' + hit.kind + ') com content_html').to.not.have.property('content_html');",
+                  "        }",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('HTML nunca dentro de excerpt (invariante, FDD linha 297)', function () {",
+                  "    json.hits.forEach(function (hit, i) {",
+                  "        if (hit.excerpt !== undefined) {",
+                  "            pm.expect(/<table|<tr\\b|<td\\b|<th\\b/i.test(hit.excerpt), 'hit[' + i + '].excerpt carrega HTML de tabela').to.be.false;",
+                  "        }",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('opcional ausente e omitido, nunca null (FDD linhas 180, 181 e 298)', function () {",
+                  "    json.hits.forEach(function (hit, i) {",
+                  "        ['kind', 'content_html', 'score', 'distance', 'excerpt', 'page'].forEach(function (c) {",
+                  "            if (c in hit) {",
+                  "                pm.expect(hit[c], 'hit[' + i + '].' + c + ' veio null').to.not.be.null;",
+                  "            }",
+                  "        });",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('provenance ausente: so caminho denso (FDD linhas 180 e 181)', function () {",
+                  "    json.hits.forEach(function (hit, i) {",
+                  "        pm.expect(hit, 'hit[' + i + '] com provenance num projeto sem funil').to.not.have.property('provenance');",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('a pergunta da celula traz hit de tabela (secao 9, linhas 361 e 362)', function () {",
+                  "    const temTabela = json.hits.some(function (hit) { return hit.kind === 'tabela'; });",
+                  "    pm.expect(temTabela, 'nenhum hit kind=tabela para a pergunta cuja resposta vive numa celula').to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('timings com search_s e generation_s (FDD linhas 204 a 206)', function () {",
+                  "    pm.expect(json.timings).to.have.property('search_s');",
+                  "    pm.expect(json.timings).to.have.property('generation_s');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — controle negativo (fora do corpus)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaForaDoCorpus}}\",\n  \"options\": {\n    \"k\": {{k}}\n  }\n}"
+            },
+            "description": "Objetivo da secao 2 (linhas 54 e 55) e criterio da secao 9 (linha 369): pergunta cuja resposta so existe no PDF do BCB, que nunca e indexado (`pdfs/fora-do-corpus/`, secao 4, linhas 98 e 99), retorna `refused=true`.\n\n**PREENCHA `perguntaForaDoCorpus` antes de rodar** — o FDD nao declara o texto exato da pergunta, e com a variavel vazia este request produz o 422 de pergunta vazia, nao o controle negativo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('variavel perguntaForaDoCorpus preenchida', function () {",
+                  "    const q = pm.collectionVariables.get('perguntaForaDoCorpus');",
+                  "    pm.expect(q, 'preencha a variavel com uma pergunta cuja resposta so exista no PDF do BCB (FDD secao 9, linha 369)').to.not.be.oneOf([null, undefined, '']);",
+                  "});",
+                  "",
+                  "pm.test('status 200 (FDD secao 5, linha 172)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('recusa preservada: refused=true (secao 2, linhas 54 e 55; secao 9, linha 369)', function () {",
+                  "    pm.expect(json.refused).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "erros",
+      "description": "Matriz de erros da secao 6 (linhas 273 a 284). Os quatro primeiros sao deterministicos ou dependem so da ordem; os demais exigem estado provocado fora do HTTP (parar container, remover chave do `.env`, remover arquivo do docstore) — a receita de cada um esta na descricao do request e no README. **Nao rode esta pasta junto com `ingest/` e `ask/`**: os estados sao incompativeis entre si.",
+      "item": [
+        {
+          "name": "POST /ask — 422 pergunta vazia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"\"\n}"
+            },
+            "description": "FDD secao 5 (linha 174) e secao 6 (linha 275): `question` vazia e 422 com `Problem`, validado na borda, **antes de qualquer custo**. Deterministico e sem dependencia de infraestrutura: bom primeiro request depois de subir o `serve.py`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 5, linha 174; secao 6, linha 275)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail (rag-api.yaml, Problem)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — 422 k fora de faixa",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTabela}}\",\n  \"options\": {\n    \"k\": {{kForaDeFaixa}}\n  }\n}"
+            },
+            "description": "FDD secao 5 (linha 174): `options.k` fora de 1 a 20 e 422. A faixa e a mesma publicada no `/capabilities` (linha 258). Deterministico."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 5, linha 174)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail (rag-api.yaml, Problem)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ingest — 422 parametro invalido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"descrever_imagens\": \"sim\"\n  }\n}"
+            },
+            "description": "FDD secao 5 (linha 214) e secao 6: 422 para parametro invalido. O unico parametro de ingestao declarado e `descrever_imagens`, boolean (linhas 257 e 258) — um valor nao-boolean e o 422 deterministico possivel. **Ambiguidade registrada como MEDIA em `divergencias.md`:** o FDD nao da exemplo do parametro invalido do `/ingest`; este corpo e o que da para sustentar."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422 (FDD secao 5, linha 214)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail (rag-api.yaml, Problem)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — 409 indice vazio",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTabela}}\",\n  \"options\": {\n    \"k\": {{k}}\n  }\n}"
+            },
+            "description": "FDD secao 5 (linha 173), secao 4 (linhas 123 e 124) e secao 6 (linha 276): `require_index` falha com 409 **antes de qualquer chamada paga** (precedente rag-03).\n\n**Estado exigido:** Chroma no ar, indice vazio — rode o script CLI de reset (zera Chroma e docstore, preserva cache de particao; secao 4, linhas 148 e 149) e NAO rode `/ingest` antes deste request."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409 (FDD secao 5, linha 173; secao 6, linha 276)', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail dizendo para rodar a ingestao (FDD linha 173)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — 500 configuracao (OPENAI_API_KEY ausente)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTabela}}\",\n  \"options\": {\n    \"k\": {{k}}\n  }\n}"
+            },
+            "description": "FDD secao 5 (linha 175) e secao 6 (linha 279): `OPENAI_API_KEY` ausente e 500 com `Problem` — configuracao, nao dependencia.\n\n**Estado exigido:** subir o `serve.py` sem a chave no `.env`. Se, como no rag-03, a construcao das propriedades falhar antes de o processo subir, nao havera resposta HTTP nenhuma — nesse caso o comportamento e valido e este request nao se aplica; a decisao fica para a implementacao (etapa 3 do Build Order)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 500 (FDD secao 5, linha 175; secao 6, linha 279)', function () {",
+                  "    pm.response.to.have.status(500);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail (rag-api.yaml, Problem)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ask — 503 Chroma fora do ar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ask",
+              "host": ["{{baseUrl}}"],
+              "path": ["ask"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{perguntaTabela}}\",\n  \"options\": {\n    \"k\": {{k}}\n  }\n}"
+            },
+            "description": "FDD secao 5 (linha 176) e secao 6 (linha 277): Chroma fora do ar e 503 com `Problem`.\n\n**Estado exigido:** `docker compose stop` no container do Chroma (porta 8002), com a API de pe."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 503 (FDD secao 5, linha 176; secao 6, linha 277)', function () {",
+                  "    pm.response.to.have.status(503);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail (rag-api.yaml, Problem)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /ingest — 503 dependencia externa fora do ar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"options\": {\n    \"descrever_imagens\": true\n  }\n}"
+            },
+            "description": "FDD secao 5 (linhas 214 e 215) e secao 6 (linhas 277 e 278): a ingestao falha com 503 pelos mesmos motivos que a consulta (Chroma fora do ar, OpenAI indisponivel apos retries).\n\n**Estado exigido:** `docker compose stop` no Chroma (8002). A variante 'falha da OpenAI no meio do enriquecimento' (secao 4, linhas 138 e 139; secao 6, linha 282) tambem termina em 503, mas nao e provocavel de forma deterministica — esta no README como nao coberta; a retomada idempotente e verificada pela pasta `ingest/`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 503 (FDD secao 5, linhas 214 e 215; secao 6, linha 277)', function () {",
+                  "    pm.response.to.have.status(503);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail (rag-api.yaml, Problem)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /health — 503 Chroma fora do ar",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "FDD secao 5 (linhas 247 e 248): 503 quando o Chroma esta fora do ar. Note a assimetria com o docstore: docstore inacessivel e `degraded` com 200 (request seguinte), Chroma fora do ar e 503.\n\n**Estado exigido:** `docker compose stop` no Chroma (8002)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 503 (FDD secao 5, linhas 247 e 248)', function () {",
+                  "    pm.response.to.have.status(503);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Problem com title e detail (rag-api.yaml, Problem)', function () {",
+                  "    pm.expect(json).to.have.property('title');",
+                  "    pm.expect(json).to.have.property('detail');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /health — 200 degraded apos dessincronia",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "FDD secao 5 (linhas 245 a 247), secao 4 (linhas 140 a 142) e secao 9 (linhas 370 e 371): com dessincronia entre indice e docstore (contagens incompativeis), o `/health` responde **200 com `status=degraded`** — saude reporta estado, nao falha por causa dele (precedente 1.2.0). O hit orfao correspondente e descartado com warning no `/ask`, nunca 500.\n\n**Estado exigido:** corpus ingerido, depois remover manualmente um original de `data/docstore/` (criterio 9). Apos o script de reset e reingestao, o status volta a `ok`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200: saude reporta estado, nao falha (FDD secao 5, linhas 245 a 247)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('status degraded com dessincronia entre os dois armazens (secao 9, linhas 370 e 371)', function () {",
+                  "    pm.expect(json.status).to.eql('degraded');",
+                  "});",
+                  "",
+                  "pm.test('evidencia da dessincronia presente na resposta (FDD linha 249 e criterio 9, linha 371)', function () {",
+                  "    const chaves = Object.keys(json);",
+                  "    const achou = chaves.some(function (c) { return /docstore/i.test(c); });",
+                  "    pm.expect(achou, 'nenhuma chave de docstore para comparar com indexed_chunks entre: ' + chaves.join(', ') + ' — o FDD nao nomeia o campo; ver divergencias.md').to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+%% Turno completo da consulta POST /ask, do entrypoint ate a resposta
+%% Fontes: FDD secoes 4 (fluxo de consulta), 5 (contrato 1), 6 (matriz de erros) e 7.
+%% A troca que define o projeto acontece entre o RetrievalService e o docstore: o Chroma
+%% devolve a REPRESENTACAO que buscou bem (resumo da tabela, descricao da imagem) e o
+%% docstore devolve o ORIGINAL integro, que e o unico conteudo que chega ao LLM.
+%% Invariante do critério de sucesso: para hit kind=tabela, o que vai no prompt vem do
+%% docstore em HTML, NUNCA o resumo que estava no indice.
+sequenceDiagram
+    autonumber
+    actor usuario as Autor consulente
+    participant entry as Entrypoint ask.py, serve.py ou frontend
+    participant rota as Rota POST ask, camada api
+    participant facade as QueryFacade
+
+    box rgb(232,244,255) Estágio de recuperação
+        participant retrieval as RetrievalService
+        participant vector as VectorRepository
+        participant docstore as DocstoreRepository
+    end
+
+    participant prompt as PromptBuilder
+    participant gen as GenerationService
+
+    box rgb(243,232,255) Fora do processo
+        participant chroma as Chroma 8002
+        participant openai as OpenAI, gpt-4o-mini e embeddings
+    end
+
+    usuario->>entry: pergunta e options.k
+    entry->>rota: question mais options
+
+    rect rgb(246,248,250)
+        Note over rota: Validação na BORDA, antes de qualquer custo
+        alt question vazia ou k fora de 1 a 20
+            rota-->>entry: 422 com Problem
+        else índice vazio, require_index
+            rota->>vector: contagem de indexados
+            vector-->>rota: zero
+            rota-->>entry: 409 com Problem, rode a ingestão
+            Note over rota,vector: precedente do rag-03: nenhuma chamada PAGA<br/>antes de saber que existe índice
+        end
+    end
+
+    rota->>facade: ask com a pergunta e as opções
+    activate facade
+
+    facade->>retrieval: retrieve com a pergunta e k, default 4
+    activate retrieval
+
+    retrieval->>vector: search denso top-k sobre as REPRESENTAÇÕES
+    activate vector
+    vector->>openai: embedding da pergunta, text-embedding-3-small
+    openai-->>vector: vetor da pergunta
+    vector->>chroma: busca por similaridade, k resultados
+    chroma-->>vector: hits com metadados doc_id, kind, page e source
+    vector-->>retrieval: até k hits, cada um com seu doc_id
+    deactivate vector
+    Note over retrieval,chroma: tempo search_s.<br/>Só existe caminho denso neste projeto:<br/>provenance fica AUSENTE do contrato, não vazio.
+
+    retrieval->>docstore: resolve os originais pelos doc_ids dos hits
+    activate docstore
+    docstore-->>retrieval: StoredOriginal por doc_id: texto cru, HTML íntegro ou descrição
+    deactivate docstore
+    Note over retrieval,docstore: tempo de resolução no docstore, medido por estágio
+
+    opt algum doc_id sem original, dessincronia
+        retrieval->>retrieval: DESCARTA o hit órfão com log de warning
+        Note over retrieval,docstore: a consulta SEGUE com os demais hits.<br/>Nunca 500 por hit órfão, hipótese confirmada na entrevista.<br/>Quem denuncia a dessincronia é o GET /health.
+    end
+
+    retrieval-->>facade: RetrievalResult com hits, originais e métrica por estágio
+    deactivate retrieval
+
+    facade->>prompt: format_context com os hits resolvidos
+    activate prompt
+    Note over prompt: Cada tipo entra ÍNTEGRO, numeração 1-based preservada.<br/>kind=texto entrega o texto cru.<br/>kind=tabela entrega o HTML COMPLETO, não o resumo.<br/>kind=imagem entrega a descrição gerada na ingestão.
+    alt tabela maior que o limite de contexto
+        prompt->>prompt: trunca por tabela e REGISTRA em log
+        Note over prompt: risco 5: truncamento é documentado, nunca silencioso
+    end
+    prompt-->>facade: contexto montado, tamanho em caracteres logado
+    deactivate prompt
+
+    facade->>gen: gera com instrução de recusa
+    activate gen
+    gen->>openai: prompt com os originais íntegros
+    openai-->>gen: texto da resposta
+    gen-->>facade: resposta gerada
+    deactivate gen
+    Note over facade,gen: tempo generation_s
+
+    alt o contexto sustenta a resposta
+        facade-->>rota: Answer com refused=false e os hits
+    else o contexto não sustenta
+        facade-->>rota: Answer com refused=true
+        Note over facade,gen: controle negativo: pergunta do relatório do BCB,<br/>que nunca foi indexado, tem que cair aqui
+    end
+    deactivate facade
+
+    rota-->>entry: 200 com o contrato 1.3.0
+    Note over rota,entry: por hit, kind em texto, tabela ou imagem.<br/>excerpt com trecho, resumo ou descrição conforme o tipo.<br/>content_html APENAS quando kind=tabela.<br/>HTML nunca dentro de excerpt, e opcional ausente é OMITIDO, nunca null.
+    entry-->>usuario: resposta com selo de kind e tabela renderizada após sanitização
+    Note over usuario,entry: consumidor 1.2.0 ignora os campos novos e continua funcionando.<br/>kind=tabela sem content_html degrada para excerpt como texto.

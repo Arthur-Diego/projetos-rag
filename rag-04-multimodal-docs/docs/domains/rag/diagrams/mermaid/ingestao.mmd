@@ -1,0 +1,124 @@
+%% Pipeline de ingestao multimodal (FDD "Pipeline multimodal de ponta a ponta", secao 4)
+%% Fontes: FDD secoes 4, 6 e 9; HLD v1.0 (Fluxo de requisicoes); ADRs 001 a 006.
+%% Duas fronteiras mandam neste desenho, e vale ler o diagrama por elas:
+%%   1. fronteira do CUSTO (ADR-005): tudo acima do enriquecimento e local e gratuito
+%%      (minutos de CPU); do enriquecimento para baixo cada elemento vira chamada paga.
+%%   2. fronteira da IDEMPOTENCIA (ADR-003): o doc_id decide quem chega a pagar. Unidade
+%%      com doc_id ja conhecido nao resume, nao embeda e nao repaga.
+%%      A decisao consulta os DOIS armazens, e nao so o docstore: original gravado com
+%%      representacao ausente no indice e retomada de falha parcial, e volta ao indice
+%%      a partir do original persistido -- repaga o embedding, nunca o enriquecimento.
+flowchart TD
+    inicio(["ingest.py ou POST /ingest: IngestionFacade.ingest"])
+
+    glob["1. Seleção dos arquivos<br/>glob pdfs/*.pdf, NÃO recursivo<br/>pdfs/fora-do-corpus/ nunca entra: é o controle negativo de recusa"]
+
+    subgraph estagioLocal["Estágio LOCAL: minutos de CPU, zero chamada paga"]
+        direction TB
+        hashPdf["2. PartitionService calcula o hash do PDF<br/>e consulta o cache em data/partition/"]
+        temCache{"3. Cache existe, íntegro e legível?"}
+        hiRes["4a. unstructured hi_res<br/>infer_table_structure=True e extração de imagens para data/figures/<br/>MINUTOS por PDF: YOLOX para layout, Table Transformer para estrutura,<br/>Tesseract por para OCR"]
+        gravaCache["4b. Grava o cache da partição bruta<br/>ADR-005: iterar no prompt de resumo não repaga o hi_res"]
+        leCache["4c. Carrega os elementos do cache em SEGUNDOS<br/>acerto de cache registrado em log (critério de aceite)"]
+        descarta["Cache corrompido ou ilegível<br/>descarta, refaz e regrava; o log DENUNCIA o descarte"]
+
+        hashPdf --> temCache
+        temCache -- "não existe" --> hiRes
+        temCache -. "ilegível" .-> descarta
+        descarta --> hiRes
+        temCache -- "válido" --> leCache
+        hiRes --> gravaCache
+    end
+
+    roteia{"5. Roteamento por CATEGORIA do elemento"}
+    unidadeTexto["5a. Texto narrativo<br/>agrupado com chunk_by_title, ~1000 caracteres<br/>uma unidade por grupo"]
+    unidadeTabela["5b. Table: uma unidade POR TABELA<br/>fora do agrupamento, carrega o HTML estruturado<br/>content_is_html=true quando veio text_as_html do Table Transformer"]
+    tabelaSemHtml["5b'. Table SEM text_as_html: detectada, não estruturada<br/>content é texto plano de fallback e content_is_html=false<br/>a unidade indexa normalmente, mas NÃO publicará content_html na consulta<br/>o hit degrada para excerpt, caminho que o frontend já trata"]
+    unidadeImagem["5c. Image: uma unidade POR IMAGEM<br/>fora do agrupamento, carrega o caminho em data/figures/"]
+    semTabela["Nenhuma tabela detectada<br/>o relatório sai com tabelas: 0 EXPLÍCITO<br/>sinal do risco 1, nunca falha silenciosa"]
+
+    docId["6. doc_id determinístico por unidade<br/>hash de conteúdo mais origem mais tipo (ADR-003)<br/>conteúdo idêntico gera doc_id idêntico em qualquer execução"]
+    jaExiste{"7. Esse doc_id já existe no docstore?"}
+    reconcilia{"7b. RECONCILIAÇÃO: dos conhecidos no docstore,<br/>quais já têm representação no índice?<br/>VectorRepository.known sobre os doc_ids conhecidos"}
+    pulada["Unidade PULADA<br/>sem enriquecimento e sem embedding: NÃO REPAGA<br/>log reporta novos=0, reaproveitados=N"]
+    reindexa["Retomada de falha parcial: original no docstore,<br/>representação AUSENTE no índice<br/>re-indexa A PARTIR DO ORIGINAL PERSISTIDO<br/>repaga só o embedding, NUNCA o enriquecimento (ADR-003)"]
+
+    subgraph estagioPago["Estágio PAGO: 8. enriquecimento SÓ das unidades novas, max_concurrency=5"]
+        direction TB
+        textoDireto["Texto vira representação DIRETO, sem resumo<br/>ADR-002, multi-vector SELETIVO: resumo é remédio para<br/>representação que embeda mal, não pipeline padrão"]
+        resumoTabela["Tabela passa pelo TableSummaryService<br/>resumo com entidades, métricas, período e nomes de coluna<br/>o resumo é o que BUSCA, nunca o que responde"]
+        flagImagem{"descrever_imagens?"}
+        descricaoImagem["Imagem passa pelo ImageDescriptionService, atrás de Protocol (ADR-006)<br/>base64 em mensagem image_url, prompt qualitativo com ressalva de precisão"]
+        imagemPendente["Imagem extraída e CONTADA, mas não descrita nem indexada<br/>fica pendente para uma ingestão futura com a flag ligada"]
+
+        flagImagem -- "true, default" --> descricaoImagem
+        flagImagem -. "false" .-> imagemPendente
+    end
+
+    falhaOpenai["Falha da OpenAI no meio do enriquecimento<br/>a ingestão para com 503; as unidades já gravadas FICAM<br/>a reexecução retoma do que falta, por idempotência de doc_id"]
+
+    subgraph indexacaoDupla["9. Indexação DUPLA, em ordem FIXA (ADR-001)"]
+        direction TB
+        gravaOriginal["9a. PRIMEIRO o original íntegro no DocstoreRepository<br/>LocalFileStore em data/docstore/, a FONTE DE VERDADE<br/>texto cru, HTML da tabela ou a DESCRIÇÃO gerada da imagem<br/>o caminho em data/figures/ viaja em figure_path, à parte"]
+        gravaRepresentacao["9b. DEPOIS a representação no Chroma 8002<br/>metadados doc_id, kind, page e source"]
+        gravaOriginal --> gravaRepresentacao
+    end
+
+    relatorio["IngestionReport<br/>pages, chunks, seconds e elements<br/>elements traz textos, tabelas e imagens"]
+    fim(["Os dois armazéns prontos e sincronizados para a consulta"])
+
+    inicio --> glob
+    glob --> hashPdf
+    gravaCache --> roteia
+    leCache --> roteia
+
+    roteia -- "NarrativeText e afins" --> unidadeTexto
+    roteia -- "Table com text_as_html" --> unidadeTabela
+    roteia -. "Table sem text_as_html" .-> tabelaSemHtml
+    roteia -- "Image" --> unidadeImagem
+    roteia -. "zero Table" .-> semTabela
+    semTabela --> relatorio
+
+    unidadeTexto --> docId
+    unidadeTabela --> docId
+    tabelaSemHtml --> docId
+    unidadeImagem --> docId
+
+    docId --> jaExiste
+    jaExiste -. "sim, já ingerida" .-> reconcilia
+    reconcilia -- "tem representação no índice" --> pulada
+    reconcilia -. "original sem representação" .-> reindexa
+    reindexa --> gravaOriginal
+    pulada --> relatorio
+
+    jaExiste -- "não, unidade nova" --> textoDireto
+    jaExiste -- "não, unidade nova" --> resumoTabela
+    jaExiste -- "não, unidade nova" --> flagImagem
+
+    textoDireto --> gravaOriginal
+    resumoTabela --> gravaOriginal
+    descricaoImagem --> gravaOriginal
+    imagemPendente --> relatorio
+    resumoTabela -. "503" .-> falhaOpenai
+    descricaoImagem -. "503" .-> falhaOpenai
+
+    gravaRepresentacao --> relatorio
+    relatorio --> fim
+
+    invariante["A ORDEM da indexação dupla é o invariante do risco 4:<br/>original antes da representação, nunca o inverso,<br/>para que um hit no índice SEMPRE encontre o original.<br/>Inverter cria hit órfão, que é meia base morta em silêncio."]
+    gravaOriginal -.-> invariante
+
+    alerta["Risco 1, o mais sério do projeto:<br/>se o hi_res não detectar as tabelas do corpus, a falha é SILENCIOSA<br/>e vira a conclusão errada de que 'multi-vector não funciona'.<br/>Guardas: script de inspeção pós-partição SEM custo de API (critério 9),<br/>elements denunciando tabelas: 0, e modelo de layout trocável por variável de ambiente."]
+    hiRes -.-> alerta
+
+    classDef critico fill:#fff3bf,stroke:#bf8700,stroke-width:3px,color:#111
+    classDef passo fill:#e8f4ff,stroke:#1f6feb,stroke-width:2px,color:#111
+    classDef pago fill:#f3e8ff,stroke:#8250df,stroke-width:2px,color:#111
+    classDef desvio fill:#f6f8fa,stroke:#8b949e,stroke-dasharray: 4 4,color:#111
+    classDef nota fill:#ffe9e9,stroke:#cf222e,stroke-dasharray: 4 4,color:#111
+
+    class hiRes,docId,gravaOriginal critico
+    class glob,hashPdf,gravaCache,leCache,unidadeTexto,unidadeTabela,unidadeImagem,gravaRepresentacao,relatorio passo
+    class textoDireto,resumoTabela,descricaoImagem pago
+    class descarta,pulada,semTabela,imagemPendente,falhaOpenai,tabelaSemHtml,reindexa desvio
+    class alerta,invariante nota
